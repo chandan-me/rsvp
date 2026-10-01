@@ -1,5 +1,5 @@
 import { db } from "./dbProvider";
-import { Event, EventSettings, EventStats } from "@/types/database";
+import { Event, EventSettings, EventStats, GateCredential } from "@/types/database";
 import { EventInput, EventSettingsInput } from "@/lib/validations/event";
 import { generateSlug } from "@/lib/utils";
 import { isLiveSupabaseConfigured, getSupabaseClient } from "./supabaseAdapter";
@@ -343,6 +343,145 @@ export class EventService {
       capacityLimit,
       capacityRemaining,
     };
+  }
+
+  // ====================================================================
+  // Gate Stations & Multi-Staff Credential Management
+  // ====================================================================
+
+  public async getGateCredentials(eventId: string): Promise<(GateCredential & { checkinCount: number })[]> {
+    db.gateCredentials = db.gateCredentials || [];
+    db.checkins = db.checkins || [];
+    const creds = db.gateCredentials.filter((c) => c.event_id === eventId);
+    const checkins = db.checkins.filter((c) => c.event_id === eventId);
+
+    return creds.map((cred) => {
+      const count = checkins.filter(
+        (c) => c.gate_user_id === cred.user_id || c.checked_in_by === cred.user_id
+      ).length;
+      return {
+        ...cred,
+        checkinCount: count,
+      };
+    });
+  }
+
+  public async createGateCredential(
+    eventId: string,
+    input: { user_id?: string; station_name?: string; passcode?: string; notes?: string }
+  ): Promise<GateCredential> {
+    const randomSuffix = Math.floor(10 + Math.random() * 90);
+    const userId = (input.user_id || `GATE-STAFF-${randomSuffix}`).trim().toUpperCase();
+    const stationName = (input.station_name || "Main Entrance Gate").trim();
+    const passcode = (input.passcode || `GATE-${Math.floor(1000 + Math.random() * 9000)}`).trim();
+
+    const newCred: GateCredential = {
+      id: `gc_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`,
+      event_id: eventId,
+      user_id: userId,
+      station_name: stationName,
+      passcode,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      last_login_at: null,
+      login_count: 0,
+      notes: input.notes?.trim() || null,
+    };
+
+    db.gateCredentials = db.gateCredentials || [];
+    db.gateCredentials.unshift(newCred);
+    return newCred;
+  }
+
+  public async deleteGateCredential(eventId: string, credId: string): Promise<boolean> {
+    db.gateCredentials = db.gateCredentials || [];
+    const index = db.gateCredentials.findIndex((c) => c.event_id === eventId && c.id === credId);
+    if (index === -1) return false;
+    db.gateCredentials.splice(index, 1);
+    return true;
+  }
+
+  public async toggleGateCredential(
+    eventId: string,
+    credId: string,
+    isActive: boolean
+  ): Promise<GateCredential | null> {
+    db.gateCredentials = db.gateCredentials || [];
+    const cred = db.gateCredentials.find((c) => c.event_id === eventId && c.id === credId);
+    if (!cred) return null;
+    cred.is_active = isActive;
+    return cred;
+  }
+
+  public async authenticateGate(
+    eventId: string,
+    userId: string,
+    passcode: string
+  ): Promise<{ success: boolean; credential?: GateCredential; eventTitle: string; error?: string }> {
+    db.gateCredentials = db.gateCredentials || [];
+    const event = await this.getEventById(eventId);
+    if (!event) {
+      return { success: false, eventTitle: "", error: "Event not found" };
+    }
+
+    const normUser = userId.trim().toLowerCase();
+    const normPass = passcode.trim().toLowerCase();
+
+    // 1. Search in configured gate credentials
+    const cred = db.gateCredentials.find(
+      (c) =>
+        c.event_id === eventId &&
+        c.user_id.toLowerCase() === normUser &&
+        c.passcode.toLowerCase() === normPass
+    );
+
+    if (cred) {
+      if (!cred.is_active) {
+        return { success: false, eventTitle: event.title, error: "This gate credential has been deactivated by the host." };
+      }
+      cred.last_login_at = new Date().toISOString();
+      cred.login_count += 1;
+      return { success: true, credential: cred, eventTitle: event.title };
+    }
+
+    // 2. Check master event checkin_pin fallback
+    const settings = await this.getEventSettings(eventId);
+    const masterPin = (settings.checkin_pin || "GATE-4821").toLowerCase().trim();
+    const staffEmail = (settings.staff_email || "admin@craftconf.io").toLowerCase().trim();
+
+    if (normPass === masterPin && (normUser === "admin" || normUser === "gate" || normUser === staffEmail || normUser.includes("gate"))) {
+      // Create ad-hoc credential session
+      const fallbackCred: GateCredential = {
+        id: `gc_master_${eventId}`,
+        event_id: eventId,
+        user_id: userId.trim().toUpperCase(),
+        station_name: "Primary Entrance Gate",
+        passcode: settings.checkin_pin || "GATE-4821",
+        is_active: true,
+        created_at: new Date().toISOString(),
+        last_login_at: new Date().toISOString(),
+        login_count: 1,
+        notes: "Master Event PIN access",
+      };
+      return { success: true, credential: fallbackCred, eventTitle: event.title };
+    }
+
+    return {
+      success: false,
+      eventTitle: event.title,
+      error: "Invalid Gate User ID or Password. Please check with your event host.",
+    };
+  }
+
+  public async getEventByGateAccessKey(accessKey: string): Promise<Event | null> {
+    const cleanKey = accessKey.trim();
+    // 1. Check settings gate_access_key
+    const settings = db.eventSettings.find((s) => s.gate_access_key === cleanKey);
+    if (settings) {
+      return this.getEventById(settings.event_id);
+    }
+    // 2. Fallback to direct event ID or slug match
+    return (await this.getEventById(cleanKey)) || (await this.getEventBySlug(cleanKey));
   }
 }
 

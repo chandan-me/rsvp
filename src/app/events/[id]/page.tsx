@@ -8,6 +8,7 @@ import { GuestTable } from "@/components/GuestTable";
 import { QuestionBuilder } from "@/components/QuestionBuilder";
 import { EventSettingsTab } from "@/components/EventSettingsTab";
 import { CheckinScanner } from "@/components/CheckinScanner";
+import { GateStationsTab } from "@/components/GateStationsTab";
 import {
   Calendar,
   MapPin,
@@ -22,6 +23,7 @@ import {
   Loader2,
   Clock,
   Sparkles,
+  ShieldCheck,
 } from "lucide-react";
 import { Event, EventSettings, EventStats, Guest, RsvpQuestion } from "@/types/database";
 import { formatDate, formatTime } from "@/lib/utils";
@@ -38,9 +40,9 @@ export default function EventDashboardPage({ params }: PageProps) {
   const [settings, setSettings] = useState<EventSettings | null>(null);
   const [guests, setGuests] = useState<any[]>([]);
   const [questions, setQuestions] = useState<RsvpQuestion[]>([]);
-  const [activeTab, setActiveTab] = useState<"overview" | "guests" | "questions" | "checkin" | "settings">(
-    "overview"
-  );
+  const [activeTab, setActiveTab] = useState<
+    "overview" | "guests" | "questions" | "checkin" | "gate_stations" | "settings"
+  >("overview");
   const [loading, setLoading] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
 
@@ -219,7 +221,8 @@ export default function EventDashboardPage({ params }: PageProps) {
               { id: "overview", label: "Overview & Stats", icon: Users },
               { id: "guests", label: `Guest Roster (${guests.length})`, icon: Users },
               { id: "questions", label: `RSVP Questions (${questions.length})`, icon: HelpCircle },
-              { id: "checkin", label: "Check-In Gate", icon: QrCode },
+              { id: "checkin", label: "Scanner Terminal", icon: QrCode },
+              { id: "gate_stations", label: "Gate Stations & Staff", icon: ShieldCheck },
               { id: "settings", label: "Event Settings", icon: Settings },
             ].map((tab) => {
               const Icon = tab.icon;
@@ -316,7 +319,12 @@ export default function EventDashboardPage({ params }: PageProps) {
           <CheckinScanner eventId={event.id} onCheckinSuccess={loadEventData} />
         )}
 
-        {/* Tab 5: Settings */}
+        {/* Tab 5: Gate Stations & Multi-Staff Logins */}
+        {activeTab === "gate_stations" && (
+          <GateStationsTab eventId={event.id} event={event} settings={settings} />
+        )}
+
+        {/* Tab 6: Settings */}
         {activeTab === "settings" && (
           <EventSettingsTab event={event} settings={settings} onRefresh={loadEventData} />
         )}

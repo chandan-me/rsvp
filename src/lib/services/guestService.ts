@@ -193,7 +193,11 @@ export class GuestService {
 
     const escapeCsv = (val: string | number | null | undefined) => {
       if (val === null || val === undefined) return '""';
-      const str = String(val).replace(/"/g, '""');
+      let str = String(val).replace(/"/g, '""');
+      // Defend against CSV / Formula Injection (CWE-1236)
+      if (/^[=+\-@\t\r]/.test(str)) {
+        str = `'${str}`;
+      }
       return `"${str}"`;
     };
 

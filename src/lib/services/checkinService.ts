@@ -119,6 +119,7 @@ export class CheckinService {
       ticket_id: ticket.id,
       guest_id: guest.id,
       checked_in_by: operatorId || null,
+      gate_user_id: operatorId || null,
       checkin_time: new Date().toISOString(),
       checkin_method: method,
       checkpoint: checkpoint || "Main Gate",

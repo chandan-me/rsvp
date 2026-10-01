@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
       method: validated.method,
       pin: validated.pin,
       checkpoint: validated.checkpoint,
+      operatorId: validated.gate_user_id || validated.pin || null,
     });
 
     if (!result.success) {

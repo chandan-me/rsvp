@@ -1,0 +1,59 @@
+# ==============================================================================
+# RSVP PRO - ENTERPRISE EVENT & GATE OPERATIONS PLATFORM
+# SYSTEM, RUNTIME & DEPENDENCY REQUIREMENTS SPECIFICATION
+# ==============================================================================
+
+# --- [1. RUNTIME & SYSTEM ENVIRONMENT] ---
+# Node.js LTS (Active LTS or Iron LTS recommended)
+node>=18.18.0
+# Package Manager
+npm>=9.5.0
+# Supported Operating Systems: Windows 10/11, macOS 12+, Ubuntu/Debian Linux 20.04+
+
+# --- [2. CORE APPLICATION FRAMEWORK] ---
+next==16.3.8
+react==19.0.0
+react-dom==19.0.0
+
+# --- [3. UI, ICONS & ANIMATION ENGINE] ---
+lucide-react==^1.16.0
+canvas-confetti==^1.9.4
+@types/canvas-confetti==^1.9.0
+tailwindcss==^4.0.0
+@tailwindcss/postcss==^4.0.0
+postcss==^8.5.3
+
+# --- [4. DATA VALIDATION & TYPE SAFETY] ---
+zod==^3.24.2
+typescript==^5.7.3
+@types/node==^22.13.10
+@types/react==^19.0.10
+@types/react-dom==^19.0.4
+
+# --- [5. QR CODE GENERATION & REAL-TIME SCANNING] ---
+qrcode==^1.5.4
+@types/qrcode==^1.5.5
+jsqr==^1.4.0
+
+# --- [6. DATABASE & PERSISTENCE] ---
+@supabase/supabase-js==^2.49.1
+@supabase/ssr==^0.5.2
+
+# --- [7. NETWORKING, SECURITY & TUNNELING] ---
+# Optional zero-config remote mobile tunneling
+# cloudflared (via npx or native binary)
+# localtunnel (via npx or native binary)
+
+# --- [8. REQUIRED ENVIRONMENT VARIABLES] ---
+# NEXT_PUBLIC_SUPABASE_URL="https://your-project.supabase.co"
+# NEXT_PUBLIC_SUPABASE_ANON_KEY="your-anon-key"
+# SUPABASE_SERVICE_ROLE_KEY="your-service-role-key" (Optional, for admin bypass)
+# APP_URL="http://localhost:3000"
+# PORT=3000
+
+# --- [9. SECURITY & AUDIT STANDARDS COMPLIANCE] ---
+# - HTTP Security Headers (SAMEORIGIN, nosniff, strict-origin-when-cross-origin)
+# - In-Memory Sliding-Window Rate Limiting (gate authentication & anti-spam)
+# - OWASP CWE-1236 CSV Formula Injection Sanitization (single-quote neutralization)
+# - Branded QR Code High Error Correction ("H" 30% redundancy for center embedded logos)
+# - Tokenized Access Routing (/checkin/[accessKey] station authorization)

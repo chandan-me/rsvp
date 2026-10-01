@@ -1,6 +1,7 @@
 import {
   Event,
   EventSettings,
+  GateCredential,
   Guest,
   RsvpQuestion,
   RsvpQuestionOption,
@@ -54,11 +55,40 @@ class InMemoryDB {
       allow_guest_list_public: false,
       notify_host_on_rsvp: true,
       confirmation_email_enabled: true,
-      checkin_pin: "7492",
+      checkin_pin: "GATE-4821",
+      staff_email: "admin@craftconf.io",
+      gate_access_key: "gk_craft_summit_2026",
       close_rsvp_at: new Date(Date.now() + 13 * 24 * 60 * 60 * 1000).toISOString(),
       is_rsvp_closed: false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+    },
+  ];
+
+  public gateCredentials: GateCredential[] = [
+    {
+      id: "gc_demo_1",
+      event_id: "e0000000-0000-0000-0000-000000000001",
+      user_id: "GATE-MAIN-01",
+      station_name: "Main Entrance Gate",
+      passcode: "GATE-4821",
+      is_active: true,
+      created_at: new Date().toISOString(),
+      last_login_at: new Date().toISOString(),
+      login_count: 5,
+      notes: "Door scanner crew tablet #1",
+    },
+    {
+      id: "gc_demo_2",
+      event_id: "e0000000-0000-0000-0000-000000000001",
+      user_id: "VIP-LOUNGE-02",
+      station_name: "VIP Lounge",
+      passcode: "VIP-PASS-9999",
+      is_active: true,
+      created_at: new Date().toISOString(),
+      last_login_at: new Date().toISOString(),
+      login_count: 2,
+      notes: "Exclusive reception desk",
     },
   ];
 
@@ -305,4 +335,7 @@ class InMemoryDB {
 // Global singleton for in-memory fallback
 const globalForDb = globalThis as unknown as { inMemoryDb?: InMemoryDB };
 export const db = globalForDb.inMemoryDb || new InMemoryDB();
+if (!db.gateCredentials) {
+  db.gateCredentials = [];
+}
 if (process.env.NODE_ENV !== "production") globalForDb.inMemoryDb = db;

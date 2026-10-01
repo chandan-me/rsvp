@@ -127,14 +127,22 @@ function buildTicketEmailHtml(event: Event, guest: Guest, ticket: Ticket, qrData
 `;
 }
 
+import { eventService } from "./eventService";
+
 export class RsvpService {
   public async submitRsvp(input: RsvpSubmissionInput): Promise<RsvpSubmissionResult> {
-    const event = db.events.find((e) => e.id === input.event_id);
+    let event = db.events.find((e) => e.id === input.event_id);
+    if (!event) {
+      event = await eventService.getEventById(input.event_id) || undefined;
+    }
     if (!event) {
       throw new Error("Event not found.");
     }
 
-    const settings = db.eventSettings.find((s) => s.event_id === input.event_id);
+    let settings = db.eventSettings.find((s) => s.event_id === input.event_id);
+    if (!settings) {
+      settings = await eventService.getEventSettings(input.event_id);
+    }
     if (settings?.is_rsvp_closed) {
       throw new Error("RSVP submissions for this event are currently closed.");
     }

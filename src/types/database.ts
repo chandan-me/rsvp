@@ -56,6 +56,19 @@ export interface EventMember {
   profile?: Profile;
 }
 
+export interface GateCredential {
+  id: string;
+  event_id: string;
+  user_id: string;
+  station_name: string;
+  passcode: string;
+  is_active: boolean;
+  created_at: string;
+  last_login_at: string | null;
+  login_count: number;
+  notes?: string | null;
+}
+
 export interface EventSettings {
   id: string;
   event_id: string;
@@ -64,6 +77,7 @@ export interface EventSettings {
   confirmation_email_enabled: boolean;
   checkin_pin: string | null;
   staff_email?: string | null;
+  gate_access_key?: string | null;
   close_rsvp_at: string | null;
   is_rsvp_closed: boolean;
   created_at: string;
@@ -174,6 +188,7 @@ export interface Checkin {
   checkin_time: string;
   checkin_method: CheckinMethod;
   checkpoint?: string | null;
+  gate_user_id?: string | null;
   created_at: string;
   guest?: Guest;
   ticket?: Ticket;

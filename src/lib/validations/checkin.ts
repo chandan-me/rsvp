@@ -6,6 +6,7 @@ export const checkinRequestSchema = z.object({
   method: z.enum(["qr_scan", "manual"]).default("qr_scan"),
   pin: z.string().optional().nullable(),
   checkpoint: z.string().optional().nullable(),
+  gate_user_id: z.string().optional().nullable(),
 });
 
 export type CheckinRequestInput = z.infer<typeof checkinRequestSchema>;

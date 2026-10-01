@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eventService } from "@/lib/services/eventService";
+import { rateLimiter } from "@/lib/services/rateLimiter";
 
 export async function POST(
   req: NextRequest,
@@ -7,58 +8,61 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const body = await req.json();
-    const staffEmail = body.email || body.staff_email;
-    const staffPin = body.pin || body.passcode;
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "127.0.0.1";
+    const rateLimitKey = `gate_auth_${id}_${clientIp}`;
 
-    if (!staffEmail || !staffPin) {
+    // Rate limiting: max 8 attempts per minute per IP
+    const rateCheck = rateLimiter.check(rateLimitKey, 8, 60 * 1000);
+    if (!rateCheck.allowed) {
       return NextResponse.json(
-        { success: false, error: "Both staff email and gate password/PIN are required." },
+        {
+          success: false,
+          error: `Too many failed station attempts. Please wait ${rateCheck.retryAfterSeconds} seconds before trying again.`,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(rateCheck.retryAfterSeconds),
+          },
+        }
+      );
+    }
+
+    const body = await req.json();
+
+    // Support user_id (primary) or legacy email/staff_email
+    const userId = body.user_id || body.staff_email || body.email;
+    const passcode = body.passcode || body.pin;
+
+    if (!userId || !passcode) {
+      return NextResponse.json(
+        { success: false, error: "Both Gate User ID and Passcode are required." },
         { status: 400 }
       );
     }
 
-    const event = await eventService.getEventById(id);
-    if (!event) {
-      return NextResponse.json({ success: false, error: "Event not found." }, { status: 404 });
-    }
+    const authResult = await eventService.authenticateGate(id, userId, passcode);
 
-    const settings = await eventService.getEventSettings(id);
-    const expectedPin = (settings.checkin_pin || "GATE-4821").trim();
-    const providedPin = String(staffPin).trim();
-
-    // Check PIN match (case-insensitive for convenience with prefix e.g. gate-4821 == GATE-4821)
-    if (expectedPin.toLowerCase() !== providedPin.toLowerCase()) {
+    if (!authResult.success) {
       return NextResponse.json(
-        { success: false, error: "Incorrect gate password or secret token." },
+        { success: false, error: authResult.error || "Gate authentication failed." },
         { status: 401 }
       );
     }
 
-    // Check staff email: allow configured staff_email, host email, or valid email format
-    const configuredEmail = (settings.staff_email || "admin@craftconf.io").toLowerCase().trim();
-    const normalizedInput = String(staffEmail).toLowerCase().trim();
-
-    // If host has configured a specific staff email, verify it, or allow matching organizer email
-    if (configuredEmail && configuredEmail !== normalizedInput && !normalizedInput.endsWith("@craftconf.io")) {
-      // If doesn't match configuredEmail, check if it's a valid admin/staff attempt
-      if (configuredEmail !== "admin@craftconf.io") {
-        return NextResponse.json(
-          { success: false, error: "Unauthorized staff email for this event gate." },
-          { status: 401 }
-        );
-      }
-    }
+    // Reset rate limit on successful authorization
+    rateLimiter.reset(rateLimitKey);
 
     return NextResponse.json({
       success: true,
-      message: "Gate access authorized",
-      eventTitle: event.title,
+      message: "Gate station access authorized",
+      eventTitle: authResult.eventTitle,
+      credential: authResult.credential,
       unlockedAt: new Date().toISOString(),
     });
   } catch (error: any) {
     return NextResponse.json(
-      { success: false, error: error?.message || "Failed to authenticate gate station" },
+      { success: false, error: error?.message || "Internal gate authentication error" },
       { status: 500 }
     );
   }

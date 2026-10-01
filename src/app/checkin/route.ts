@@ -8,9 +8,15 @@ export async function GET(req: NextRequest) {
     const origin = forwardedHost ? `${forwardedProto}://${forwardedHost}` : req.nextUrl.origin;
 
     const events = await eventService.getEvents();
-    const targetPath = events.length > 0 ? `/events/${events[0].id}/checkin` : "/events";
+    if (events.length === 0) {
+      return NextResponse.redirect(`${origin}/events`);
+    }
 
-    return NextResponse.redirect(`${origin}${targetPath}`);
+    const event = events[0];
+    const settings = await eventService.getEventSettings(event.id);
+    const accessKey = settings.gate_access_key || `gk_${event.id.slice(0, 8)}`;
+
+    return NextResponse.redirect(`${origin}/checkin/${accessKey}`);
   } catch {
     return NextResponse.redirect(new URL("/events", req.nextUrl.origin));
   }

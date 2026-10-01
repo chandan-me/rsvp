@@ -25,10 +25,11 @@ import { CheckinResult } from "@/lib/services/checkinService";
 
 interface CheckinScannerProps {
   eventId: string;
+  operatorUserId?: string;
   onCheckinSuccess?: () => void;
 }
 
-export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProps) {
+export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: CheckinScannerProps) {
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [manualCode, setManualCode] = useState("");
@@ -255,6 +256,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
           method,
           pin: pin.trim() || undefined,
           checkpoint: chosenSection,
+          gate_user_id: operatorUserId || undefined,
         }),
       });
 

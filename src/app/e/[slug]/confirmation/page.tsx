@@ -19,6 +19,8 @@ import {
   Mail,
   Loader2,
   Building2,
+  ShieldCheck,
+  Upload,
 } from "lucide-react";
 import { Event } from "@/types/database";
 import { formatDate, formatTime, createIcsCalendarUrl, createGoogleCalendarUrl } from "@/lib/utils";
@@ -35,6 +37,9 @@ export default function ConfirmationPage({ params }: PageProps) {
 
   const [event, setEvent] = useState<Event | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [qrLogo, setQrLogo] = useState<"ticket" | "shield" | "brand" | "calendar" | "custom" | "none">("ticket");
+  const [customLogoUrl, setCustomLogoUrl] = useState<string | null>(null);
+  const [loadingQr, setLoadingQr] = useState(false);
   const [resendEmail, setResendEmail] = useState("");
   const [isResending, setIsResending] = useState(false);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
@@ -63,14 +68,6 @@ export default function ConfirmationPage({ params }: PageProps) {
         const found = (data.events || []).find((e: Event) => e.slug === slug);
         if (found) {
           setEvent(found);
-
-          // Fetch QR code
-          const qrPayload = `RSVP:${found.id}:${ticketCode}`;
-          const resQr = await fetch(`/api/qr?text=${encodeURIComponent(qrPayload)}`);
-          if (resQr.ok) {
-            const qrJson = await resQr.json();
-            setQrDataUrl(qrJson.dataUrl);
-          }
         }
       } catch (err) {
         console.error(err);
@@ -78,7 +75,61 @@ export default function ConfirmationPage({ params }: PageProps) {
     }
 
     loadData();
-  }, [slug, ticketCode, isAttending]);
+  }, [slug, isAttending]);
+
+  // Load or re-generate QR code whenever event, ticketCode, or chosen logo changes
+  useEffect(() => {
+    if (!event) return;
+    async function fetchQr() {
+      try {
+        setLoadingQr(true);
+        const qrPayload = `RSVP:${event!.id}:${ticketCode}`;
+        const params = new URLSearchParams({
+          text: qrPayload,
+          logo: qrLogo,
+        });
+        if (qrLogo === "custom" && customLogoUrl) {
+          params.set("custom_logo_url", customLogoUrl);
+        }
+
+        const resQr = await fetch(`/api/qr?${params.toString()}`);
+        if (resQr.ok) {
+          const qrJson = await resQr.json();
+          setQrDataUrl(qrJson.dataUrl);
+        }
+      } catch (err) {
+        console.error("Failed to load QR code:", err);
+      } finally {
+        setLoadingQr(false);
+      }
+    }
+
+    fetchQr();
+  }, [event, ticketCode, qrLogo, customLogoUrl]);
+
+  function handleCustomLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setCustomLogoUrl(result);
+        setQrLogo("custom");
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleDownloadQr() {
+    if (!qrDataUrl) return;
+    const a = document.createElement("a");
+    a.href = qrDataUrl;
+    a.download = `${event?.slug || "event"}-ticket-qr-${ticketCode}.svg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
 
   async function handleResendEmail(e: React.FormEvent) {
     e.preventDefault();
@@ -193,23 +244,148 @@ export default function ConfirmationPage({ params }: PageProps) {
               </div>
 
               {/* QR Code Presentation */}
-              <div className="flex flex-col items-center justify-center text-center">
-                <div className="p-3 bg-white border border-slate-200 rounded-2xl shadow-inner">
-                  {qrDataUrl ? (
+              <div className="flex flex-col items-center justify-center text-center space-y-3">
+                <div className="relative p-3.5 bg-white border border-slate-200/90 rounded-3xl shadow-inner group">
+                  {loadingQr ? (
+                    <div className="h-44 w-44 bg-slate-50 rounded-2xl flex flex-col items-center justify-center gap-2 text-slate-400">
+                      <Loader2 className="h-7 w-7 animate-spin text-sky-500" />
+                      <span className="text-[11px] font-semibold">Generating Pass...</span>
+                    </div>
+                  ) : qrDataUrl ? (
                     <img
                       src={qrDataUrl}
                       alt="Digital Check-In QR Code"
-                      className="h-44 w-44 object-contain rounded-lg"
+                      className="h-44 w-44 object-contain rounded-xl"
                     />
                   ) : (
-                    <div className="h-44 w-44 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400">
+                    <div className="h-44 w-44 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-400">
                       <TicketIcon className="h-10 w-10 animate-pulse" />
                     </div>
                   )}
+
+                  {/* QR Quick Download Button */}
+                  {qrDataUrl && !loadingQr && (
+                    <button
+                      type="button"
+                      onClick={handleDownloadQr}
+                      className="absolute bottom-2 right-2 rounded-xl bg-slate-900/90 hover:bg-slate-900 text-white p-1.5 shadow-md print:hidden transition-transform active:scale-95 cursor-pointer"
+                      title="Download QR Image (SVG)"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
-                <span className="mt-2 text-[11px] font-mono text-slate-500 tracking-wider">
-                  SCAN AT GATE • {ticketCode}
-                </span>
+
+                <div className="space-y-1">
+                  <span className="text-[11px] font-mono font-bold text-slate-700 tracking-wider block">
+                    SCAN AT GATE • {ticketCode}
+                  </span>
+                  <span className="text-[10px] text-slate-400 block print:hidden">
+                    Pass with high-res 30% error recovery & instant gate validation
+                  </span>
+                </div>
+
+                {/* Branded QR Center Logo Toolbar (Print Hidden) */}
+                <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-slate-50/80 p-2.5 print:hidden space-y-2">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 px-1">
+                    <span>Center QR Badge:</span>
+                    <span className="text-sky-600 font-semibold capitalize">{qrLogo} Logo</span>
+                  </div>
+
+                  <div className="grid grid-cols-5 gap-1 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setQrLogo("ticket")}
+                      className={`py-1.5 px-1 rounded-xl font-bold flex flex-col items-center gap-0.5 transition-all cursor-pointer ${
+                        qrLogo === "ticket"
+                          ? "bg-sky-500 text-white shadow-2xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      <TicketIcon className="h-3.5 w-3.5" />
+                      <span className="text-[9px]">Ticket</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setQrLogo("shield")}
+                      className={`py-1.5 px-1 rounded-xl font-bold flex flex-col items-center gap-0.5 transition-all cursor-pointer ${
+                        qrLogo === "shield"
+                          ? "bg-emerald-600 text-white shadow-2xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      <span className="text-[9px]">Shield</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setQrLogo("brand")}
+                      className={`py-1.5 px-1 rounded-xl font-bold flex flex-col items-center gap-0.5 transition-all cursor-pointer ${
+                        qrLogo === "brand"
+                          ? "bg-indigo-600 text-white shadow-2xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      <span className="text-[9px]">Brand</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setQrLogo("calendar")}
+                      className={`py-1.5 px-1 rounded-xl font-bold flex flex-col items-center gap-0.5 transition-all cursor-pointer ${
+                        qrLogo === "calendar"
+                          ? "bg-violet-600 text-white shadow-2xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      <Calendar className="h-3.5 w-3.5" />
+                      <span className="text-[9px]">Event</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setQrLogo("none")}
+                      className={`py-1.5 px-1 rounded-xl font-bold flex flex-col items-center gap-0.5 transition-all cursor-pointer ${
+                        qrLogo === "none"
+                          ? "bg-slate-900 text-white shadow-2xs"
+                          : "bg-white text-slate-600 border border-slate-200 hover:border-slate-300"
+                      }`}
+                    >
+                      <span className="text-xs">⬛</span>
+                      <span className="text-[9px]">Classic</span>
+                    </button>
+                  </div>
+
+                  {/* Upload custom image to embed in QR center */}
+                  <div className="pt-1 flex items-center justify-between px-1">
+                    <label className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 hover:text-sky-600 cursor-pointer">
+                      <Upload className="h-3.5 w-3.5" />
+                      <span>{customLogoUrl ? "Change Custom Logo Image" : "Upload Custom Logo into QR"}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleCustomLogoUpload}
+                        className="hidden"
+                      />
+                    </label>
+
+                    {customLogoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomLogoUrl(null);
+                          setQrLogo("ticket");
+                        }}
+                        className="text-[10px] text-rose-500 hover:underline cursor-pointer"
+                      >
+                        Remove Logo
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Resend to Email Feedback message */}

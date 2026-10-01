@@ -35,8 +35,8 @@ export default function LoginPage() {
 
   // Check-In / Gatekeeper credentials
   const [gateEventId, setGateEventId] = useState("ev_demo_craft_code");
-  const [gateStaffEmail, setGateStaffEmail] = useState("gate.staff@eventpro.com");
-  const [gatePasscode, setGatePasscode] = useState("GATE-8492");
+  const [gateUserId, setGateUserId] = useState("GATE-MAIN-01");
+  const [gatePasscode, setGatePasscode] = useState("GATE-4821");
 
   // Google OAuth Login
   async function handleGoogleOAuth() {
@@ -140,22 +140,25 @@ export default function LoginPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          staff_email: gateStaffEmail.trim(),
+          user_id: gateUserId.trim(),
           passcode: gatePasscode.trim(),
         }),
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Gatekeeper passcode invalid.");
+        throw new Error(data.error || "Gatekeeper credentials invalid.");
       }
 
-      // Store gate session token
+      // Store gate session token and operator info
       if (typeof window !== "undefined") {
         sessionStorage.setItem(`gate_auth_${gateEventId}`, "true");
+        if (data.credential) {
+          sessionStorage.setItem(`gate_session_${gateEventId}`, JSON.stringify(data.credential));
+        }
       }
 
-      setSuccess(`Gate access granted for ${data.event_title}! Opening scanner...`);
+      setSuccess(`Gate access granted for ${data.eventTitle || data.event_title}! Opening scanner...`);
       setTimeout(() => {
         router.push(`/events/${gateEventId}/checkin`);
       }, 900);
@@ -467,14 +470,14 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Gate Staff Email</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">Gate Staff User ID</label>
                 <input
-                  type="email"
+                  type="text"
                   required
-                  value={gateStaffEmail}
-                  onChange={(e) => setGateStaffEmail(e.target.value)}
-                  placeholder="staff@event.com"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900/90 py-2 px-3 text-xs text-white placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
+                  value={gateUserId}
+                  onChange={(e) => setGateUserId(e.target.value)}
+                  placeholder="e.g. GATE-MAIN-01"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-900/90 py-2 px-3 text-xs text-white placeholder-slate-500 focus:border-emerald-500 focus:outline-none font-mono font-semibold"
                 />
               </div>
 
