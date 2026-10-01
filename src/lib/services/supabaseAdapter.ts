@@ -15,6 +15,12 @@ export function isLiveSupabaseConfigured(): boolean {
   return isRealUrl && isNotDummyKey;
 }
 
+let _adminClient: any = null;
+
 export function getSupabaseClient() {
-  return createAdminClient();
+  if (!_adminClient) {
+    _adminClient = createAdminClient();
+  }
+  return _adminClient;
 }
+

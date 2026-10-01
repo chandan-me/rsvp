@@ -25,19 +25,22 @@ export default function CheckinStationPage({ params }: PageProps) {
   const [event, setEvent] = useState<Event | null>(null);
   const [stats, setStats] = useState<EventStats | null>(null);
   const [recentCheckins, setRecentCheckins] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   async function loadData() {
     try {
-      const res = await fetch(`/api/events/${eventId}`);
+      setIsRefreshing(true);
+      const [res, resGuests] = await Promise.all([
+        fetch(`/api/events/${eventId}`),
+        fetch(`/api/events/${eventId}/guests?checkedIn=true`),
+      ]);
+
       if (res.ok) {
         const data = await res.json();
         setEvent(data.event);
         setStats(data.stats);
       }
 
-      // Fetch guests to populate recent checkins list
-      const resGuests = await fetch(`/api/events/${eventId}/guests?checkedIn=true`);
       if (resGuests.ok) {
         const gData = await resGuests.json();
         setRecentCheckins(gData.guests || []);
@@ -45,7 +48,7 @@ export default function CheckinStationPage({ params }: PageProps) {
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      setIsRefreshing(false);
     }
   }
 
@@ -53,13 +56,6 @@ export default function CheckinStationPage({ params }: PageProps) {
     loadData();
   }, [eventId]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-sky-400" />
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">

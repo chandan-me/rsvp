@@ -3,9 +3,14 @@ import { Event, EventSettings, EventStats } from "@/types/database";
 import { EventInput, EventSettingsInput } from "@/lib/validations/event";
 import { generateSlug } from "@/lib/utils";
 import { isLiveSupabaseConfigured, getSupabaseClient } from "./supabaseAdapter";
-
 export class EventService {
+  private eventsListCache: { events: Event[]; timestamp: number } | null = null;
+
   public async getEvents(): Promise<Event[]> {
+    if (this.eventsListCache && Date.now() - this.eventsListCache.timestamp < this.CACHE_TTL_MS) {
+      return this.eventsListCache.events;
+    }
+
     if (isLiveSupabaseConfigured()) {
       try {
         const supabase = getSupabaseClient();
@@ -14,18 +19,32 @@ export class EventService {
           .select("*")
           .order("created_at", { ascending: false });
 
-        if (!error && data) return data as Event[];
+        if (!error && data) {
+          const list = data as Event[];
+          this.eventsListCache = { events: list, timestamp: Date.now() };
+          return list;
+        }
       } catch (err) {
         console.error("Supabase getEvents error, falling back to local:", err);
       }
     }
 
-    return [...db.events].sort(
+    const list = [...db.events].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
+    this.eventsListCache = { events: list, timestamp: Date.now() };
+    return list;
   }
 
+  private eventCache = new Map<string, { event: Event; timestamp: number }>();
+  private CACHE_TTL_MS = 30000;
+
   public async getEventById(id: string): Promise<Event | null> {
+    const cached = this.eventCache.get(id);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL_MS) {
+      return cached.event;
+    }
+
     if (isLiveSupabaseConfigured()) {
       try {
         const supabase = getSupabaseClient();
@@ -35,17 +54,31 @@ export class EventService {
           .eq("id", id)
           .single();
 
-        if (!error && data) return data as Event;
+        if (!error && data) {
+          const event = data as Event;
+          this.eventCache.set(id, { event, timestamp: Date.now() });
+          this.eventCache.set(`slug:${event.slug}`, { event, timestamp: Date.now() });
+          return event;
+        }
       } catch (err) {
         console.error("Supabase getEventById error, falling back to local:", err);
       }
     }
 
     const event = db.events.find((e) => e.id === id);
+    if (event) {
+      this.eventCache.set(id, { event, timestamp: Date.now() });
+      this.eventCache.set(`slug:${event.slug}`, { event, timestamp: Date.now() });
+    }
     return event || null;
   }
 
   public async getEventBySlug(slug: string): Promise<Event | null> {
+    const cached = this.eventCache.get(`slug:${slug}`);
+    if (cached && Date.now() - cached.timestamp < this.CACHE_TTL_MS) {
+      return cached.event;
+    }
+
     if (isLiveSupabaseConfigured()) {
       try {
         const supabase = getSupabaseClient();
@@ -55,15 +88,25 @@ export class EventService {
           .eq("slug", slug)
           .single();
 
-        if (!error && data) return data as Event;
+        if (!error && data) {
+          const event = data as Event;
+          this.eventCache.set(event.id, { event, timestamp: Date.now() });
+          this.eventCache.set(`slug:${slug}`, { event, timestamp: Date.now() });
+          return event;
+        }
       } catch (err) {
         console.error("Supabase getEventBySlug error, falling back to local:", err);
       }
     }
 
     const event = db.events.find((e) => e.slug === slug);
+    if (event) {
+      this.eventCache.set(event.id, { event, timestamp: Date.now() });
+      this.eventCache.set(`slug:${slug}`, { event, timestamp: Date.now() });
+    }
     return event || null;
   }
+
 
   public async createEvent(input: EventInput, userId?: string): Promise<Event> {
     const id = `e${Date.now().toString(36)}${Math.random().toString(36).substring(2, 7)}`;
@@ -138,6 +181,8 @@ export class EventService {
     };
 
     db.events[index] = updated;
+    this.eventCache.set(id, { event: updated, timestamp: Date.now() });
+    this.eventCache.set(`slug:${updated.slug}`, { event: updated, timestamp: Date.now() });
     return updated;
   }
 
@@ -183,8 +228,8 @@ export class EventService {
     return updated;
   }
 
-  public async getEventStats(eventId: string): Promise<EventStats> {
-    const event = await this.getEventById(eventId);
+  public async getEventStats(eventId: string, existingEvent?: Event | null): Promise<EventStats> {
+    const event = existingEvent !== undefined ? existingEvent : await this.getEventById(eventId);
     const guests = db.guests.filter((g) => g.event_id === eventId);
     const checkins = db.checkins.filter((c) => c.event_id === eventId);
 

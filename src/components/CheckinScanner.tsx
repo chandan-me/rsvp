@@ -98,17 +98,25 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
         );
       }
 
+      setIsCameraActive(true);
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: mode },
       });
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.setAttribute("playsinline", "true");
-        await videoRef.current.play();
-        setIsCameraActive(true);
-        startScanning();
-      }
+      // Allow DOM to settle so videoRef is bound
+      setTimeout(async () => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.setAttribute("playsinline", "true");
+          try {
+            await videoRef.current.play();
+          } catch (playErr) {
+            console.warn("Video play error:", playErr);
+          }
+          startScanning();
+        }
+      }, 50);
     } catch (err: any) {
       console.warn("Camera start failed:", err);
       setCameraError(
@@ -289,7 +297,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
         accept="image/*"
         capture="environment"
         onChange={handleFileSelected}
-        className="hidden"
+        className="sr-only opacity-0 pointer-events-none absolute -z-10 w-0 h-0"
       />
 
       {/* Top Controller Bar */}
@@ -306,6 +314,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
 
         <div className="flex items-center gap-2 flex-wrap">
           <button
+            type="button"
             onClick={() => setSoundEnabled(!soundEnabled)}
             className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors"
             title={soundEnabled ? "Mute audio cues" : "Enable audio cues"}
@@ -315,6 +324,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
 
           {/* Connect Mobile Modal Trigger */}
           <button
+            type="button"
             onClick={openMobileModal}
             className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
             title="Open on your phone with QR code"
@@ -325,6 +335,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
 
           {/* Snap Photo Button (Works on all mobile devices even without HTTPS) */}
           <button
+            type="button"
             onClick={() => fileInputRef.current?.click()}
             className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors shadow-2xs"
             title="Snap photo with camera or upload image"
@@ -336,6 +347,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
           {/* Live Video Camera Button */}
           {!isCameraActive ? (
             <button
+              type="button"
               onClick={() => startCamera()}
               className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-sky-500 transition-colors"
             >
@@ -345,6 +357,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
           ) : (
             <div className="flex items-center gap-1.5">
               <button
+                type="button"
                 onClick={toggleCameraFlip}
                 className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 transition-colors"
                 title="Switch between front and back camera"
@@ -353,6 +366,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
                 <span>Flip</span>
               </button>
               <button
+                type="button"
                 onClick={stopCamera}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 transition-colors"
               >
@@ -372,6 +386,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
             <p className="leading-relaxed">{cameraError}</p>
             <div className="mt-2 flex items-center gap-2">
               <button
+                type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-amber-700 transition-colors"
               >
@@ -383,14 +398,20 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
         </div>
       )}
 
-      {/* Camera Viewport */}
-      {isCameraActive && (
-        <div className="relative overflow-hidden rounded-2xl border-2 border-dashed border-sky-400 bg-slate-950 p-2 shadow-inner">
-          <div className="relative aspect-video max-h-[360px] mx-auto overflow-hidden rounded-xl bg-black flex items-center justify-center">
-            <video ref={videoRef} className="h-full w-full object-cover" />
-            <canvas ref={canvasRef} className="hidden" />
+      {/* Camera Viewport (Always in DOM for instant binding) */}
+      <div className="relative overflow-hidden rounded-2xl border-2 border-dashed border-slate-700/80 bg-slate-950 p-2 shadow-inner">
+        <div className="relative aspect-video max-h-[360px] mx-auto overflow-hidden rounded-xl bg-black flex items-center justify-center">
+          <video
+            ref={videoRef}
+            playsInline
+            muted
+            autoPlay
+            className={`h-full w-full object-cover ${isCameraActive ? "block" : "hidden"}`}
+          />
+          <canvas ref={canvasRef} className="hidden" />
 
-            {/* Target Reticle */}
+          {isCameraActive ? (
+            /* Target Reticle */
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div className="relative h-48 w-48 rounded-2xl border-2 border-sky-400 bg-sky-500/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.45)] flex items-center justify-center">
                 <div className="h-40 w-40 border border-dashed border-sky-200/80 rounded-xl animate-pulse" />
@@ -399,9 +420,40 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
                 </span>
               </div>
             </div>
-          </div>
+          ) : (
+            /* Inactive Scanner Standby UI */
+            <div className="text-center p-6 space-y-4">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-sky-400 border border-slate-800 shadow-inner">
+                <QrCode className="h-7 w-7" />
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-white">Scanner Standby</h4>
+                <p className="text-xs text-slate-400 max-w-xs mx-auto mt-1">
+                  Ready to scan attendee tickets. Start live camera or snap a photo:
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => startCamera()}
+                  className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-xs font-bold text-white shadow-md hover:bg-sky-500 transition-transform active:scale-95"
+                >
+                  <Camera className="h-4 w-4" />
+                  <span>Start Live Camera</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-800 border border-slate-700 px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition-colors"
+                >
+                  <Camera className="h-4 w-4 text-emerald-400" />
+                  <span>Snap Photo</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Manual Entry Bar with Camera Icon Button */}
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">

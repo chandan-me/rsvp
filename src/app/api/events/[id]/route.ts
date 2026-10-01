@@ -11,8 +11,10 @@ export async function GET(
     if (!event) {
       return NextResponse.json({ success: false, error: "Event not found" }, { status: 404 });
     }
-    const stats = await eventService.getEventStats(id);
-    const settings = await eventService.getEventSettings(id);
+    const [stats, settings] = await Promise.all([
+      eventService.getEventStats(id, event),
+      eventService.getEventSettings(id),
+    ]);
 
     return NextResponse.json({ success: true, event, stats, settings });
   } catch (error: any) {

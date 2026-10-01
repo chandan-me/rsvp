@@ -15,7 +15,13 @@ import { eventService } from "@/lib/services/eventService";
 import { formatDate, formatTime } from "@/lib/utils";
 
 export default async function EventsPage() {
-  const events = await eventService.getEvents();
+  const rawEvents = await eventService.getEvents();
+  const events = await Promise.all(
+    rawEvents.map(async (event) => {
+      const stats = await eventService.getEventStats(event.id, event);
+      return { ...event, stats };
+    })
+  );
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
@@ -58,8 +64,8 @@ export default async function EventsPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {events.map(async (event) => {
-              const stats = await eventService.getEventStats(event.id);
+            {events.map((event) => {
+              const stats = event.stats;
 
               return (
                 <div

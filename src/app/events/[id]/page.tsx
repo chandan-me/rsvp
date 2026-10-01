@@ -46,23 +46,28 @@ export default function EventDashboardPage({ params }: PageProps) {
 
   async function loadEventData() {
     try {
-      // 1. Fetch Event + Stats + Settings
-      const resEvent = await fetch(`/api/events/${eventId}`);
-      if (!resEvent.ok) throw new Error("Event not found");
-      const eventData = await resEvent.json();
-      setEvent(eventData.event);
-      setStats(eventData.stats);
-      setSettings(eventData.settings);
+      const [resEvent, resGuests, resQuestions] = await Promise.all([
+        fetch(`/api/events/${eventId}`),
+        fetch(`/api/events/${eventId}/guests`),
+        fetch(`/api/events/${eventId}/questions`),
+      ]);
 
-      // 2. Fetch Guests
-      const resGuests = await fetch(`/api/events/${eventId}/guests`);
-      const guestData = await resGuests.json();
-      setGuests(guestData.guests || []);
+      if (resEvent.ok) {
+        const eventData = await resEvent.json();
+        setEvent(eventData.event);
+        setStats(eventData.stats);
+        setSettings(eventData.settings);
+      }
 
-      // 3. Fetch Questions
-      const resQuestions = await fetch(`/api/events/${eventId}/questions`);
-      const qData = await resQuestions.json();
-      setQuestions(qData.questions || []);
+      if (resGuests.ok) {
+        const guestData = await resGuests.json();
+        setGuests(guestData.guests || []);
+      }
+
+      if (resQuestions.ok) {
+        const qData = await resQuestions.json();
+        setQuestions(qData.questions || []);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -222,8 +227,9 @@ export default function EventDashboardPage({ params }: PageProps) {
               return (
                 <button
                   key={tab.id}
+                  type="button"
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`inline-flex items-center gap-2 border-b-2 py-3 px-3 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${
+                  className={`inline-flex items-center gap-2 border-b-2 py-3 px-3 text-xs sm:text-sm font-medium transition-colors whitespace-nowrap cursor-pointer ${
                     isActive
                       ? "border-sky-600 text-sky-600 font-semibold"
                       : "border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800"
