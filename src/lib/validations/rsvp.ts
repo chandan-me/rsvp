@@ -20,7 +20,15 @@ export const rsvpSubmissionSchema = z.object({
 
 export const rsvpQuestionSchema = z.object({
   prompt: z.string().min(2, "Question prompt is required").max(300),
-  question_type: z.enum(["text", "textarea", "single_choice", "multiple_choice", "boolean"]),
+  question_type: z.enum([
+    "text",
+    "textarea",
+    "single_choice",
+    "multiple_choice",
+    "boolean",
+    "file_upload",
+    "image_upload",
+  ]),
   is_required: z.boolean().default(false),
   order_index: z.number().int().default(0),
   options: z

@@ -5,7 +5,15 @@
 export type EventRole = 'owner' | 'admin' | 'staff';
 export type GuestStatus = 'invited' | 'pending' | 'attending' | 'declined';
 export type InvitationStatus = 'pending' | 'sent' | 'delivered' | 'failed';
-export type QuestionType = 'text' | 'textarea' | 'single_choice' | 'multiple_choice' | 'boolean';
+export type QuestionType =
+  | 'text'
+  | 'textarea'
+  | 'single_choice'
+  | 'multiple_choice'
+  | 'boolean'
+  | 'file_upload'
+  | 'image_upload';
+
 export type RsvpStatus = 'attending' | 'declined';
 export type TicketStatus = 'valid' | 'used' | 'cancelled';
 export type CheckinMethod = 'qr_scan' | 'manual';
@@ -165,6 +173,7 @@ export interface Checkin {
   checked_in_by: string | null;
   checkin_time: string;
   checkin_method: CheckinMethod;
+  checkpoint?: string | null;
   created_at: string;
   guest?: Guest;
   ticket?: Ticket;

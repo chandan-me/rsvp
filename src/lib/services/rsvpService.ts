@@ -1,8 +1,9 @@
 import { db } from "./dbProvider";
-import { RsvpResponse, RsvpAnswer, Guest, Ticket } from "@/types/database";
+import { RsvpResponse, RsvpAnswer, Guest, Ticket, Event } from "@/types/database";
 import { RsvpSubmissionInput } from "@/lib/validations/rsvp";
-import { generateTicketCode, generateQrToken } from "@/lib/utils";
+import { generateTicketCode, generateQrToken, formatDate, formatTime, createGoogleCalendarUrl } from "@/lib/utils";
 import { notificationService } from "@/lib/notifications/service";
+import QRCode from "qrcode";
 
 export interface RsvpSubmissionResult {
   success: boolean;
@@ -10,6 +11,120 @@ export interface RsvpSubmissionResult {
   response: RsvpResponse;
   ticket?: Ticket;
   message: string;
+}
+
+function buildTicketEmailHtml(event: Event, guest: Guest, ticket: Ticket, qrDataUrl: string): string {
+  const eventDateStr = formatDate(event.start_date, event.timezone);
+  const eventTimeStr = formatTime(event.start_date, event.timezone);
+  const calUrl = createGoogleCalendarUrl({
+    title: event.title,
+    description: event.description || "",
+    location: event.location_name || event.location_address || "",
+    startDate: event.start_date,
+    endDate: event.end_date,
+  });
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Your Digital Ticket Pass - ${event.title}</title>
+</head>
+<body style="margin: 0; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,0.06); border: 1px solid #e2e8f0;">
+    <!-- Company & Event Banner -->
+    <tr>
+      <td style="background-color: #0f172a; padding: 32px 28px; text-align: left; color: #ffffff;">
+        <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #38bdf8; margin-bottom: 8px;">
+          RSVP Pro Event Operations • Official Pass
+        </div>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 800; line-height: 1.25; color: #ffffff;">
+          ${event.title}
+        </h1>
+        <p style="margin: 8px 0 0 0; font-size: 13px; color: #94a3b8; line-height: 1.5;">
+          ${event.description ? event.description.slice(0, 140) + '...' : 'Thank you for your RSVP! Your digital entrance pass is ready below.'}
+        </p>
+      </td>
+    </tr>
+
+    <!-- Attendee Greeting & Status -->
+    <tr>
+      <td style="padding: 24px 28px 12px 28px;">
+        <p style="font-size: 15px; margin: 0 0 6px 0; color: #0f172a;">
+          Hello <strong>${guest.first_name} ${guest.last_name}</strong>,
+        </p>
+        <p style="font-size: 13px; color: #64748b; margin: 0; line-height: 1.6;">
+          Your attendance is confirmed! Please present this digital pass with the QR code at the check-in gate for instant scanning.
+        </p>
+      </td>
+    </tr>
+
+    <!-- Ticket Card Box -->
+    <tr>
+      <td style="padding: 12px 28px;">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background: #f1f5f9; border-radius: 16px; border: 1px dashed #cbd5e1; text-align: center; padding: 24px 16px;">
+          <tr>
+            <td align="center">
+              <div style="background: #ffffff; padding: 12px; border-radius: 14px; display: inline-block; box-shadow: 0 4px 12px rgba(0,0,0,0.06); border: 1px solid #e2e8f0;">
+                <img src="${qrDataUrl}" alt="Digital Ticket QR Code" width="180" height="180" style="display: block; border-radius: 8px;" />
+              </div>
+              <div style="margin-top: 14px; font-family: monospace; font-size: 15px; font-weight: 700; color: #0f172a; letter-spacing: 0.08em;">
+                ${ticket.ticket_code}
+              </div>
+              <div style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 600; margin-top: 2px;">
+                Scan At Gate • Valid for ${1 + guest.plus_ones_count} Attendee${guest.plus_ones_count > 0 ? 's' : ''}
+              </div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+
+    <!-- Schedule & Venue Details -->
+    <tr>
+      <td style="padding: 16px 28px;">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-top: 1px solid #f1f5f9; padding-top: 16px;">
+          <tr>
+            <td width="50%" valign="top" style="padding-right: 12px;">
+              <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; display: block; margin-bottom: 4px;">
+                📅 Date & Time
+              </span>
+              <strong style="font-size: 13px; color: #0f172a; display: block;">${eventDateStr}</strong>
+              <span style="font-size: 12px; color: #64748b;">${eventTimeStr} (${event.timezone})</span>
+            </td>
+            <td width="50%" valign="top" style="padding-left: 12px;">
+              <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; display: block; margin-bottom: 4px;">
+                📍 Venue Location
+              </span>
+              <strong style="font-size: 13px; color: #0f172a; display: block;">${event.location_name || 'Event Venue'}</strong>
+              <span style="font-size: 12px; color: #64748b;">${event.location_address || 'See invitation for access directions'}</span>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+
+    <!-- Call to Action Buttons -->
+    <tr>
+      <td style="padding: 12px 28px 28px 28px; text-align: center;">
+        <a href="${calUrl}" target="_blank" style="display: inline-block; background-color: #0284c7; color: #ffffff; text-decoration: none; font-size: 13px; font-weight: 600; padding: 10px 20px; border-radius: 10px; margin-right: 8px;">
+          + Add to Google Calendar
+        </a>
+      </td>
+    </tr>
+
+    <!-- Footer -->
+    <tr>
+      <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 28px; text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.5;">
+        You received this email because you confirmed your attendance for ${event.title}.<br/>
+        Organized seamlessly with RSVP Pro Event Management Platform.
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+`;
 }
 
 export class RsvpService {
@@ -120,15 +235,31 @@ export class RsvpService {
       }
     }
 
-    // 5. Trigger notification log & confirmation message
+    // 5. Trigger notification log & confirmation message with rich HTML QR pass
     if (settings?.confirmation_email_enabled) {
       const subject = isAttending
-        ? `RSVP Confirmed: ${event.title}`
+        ? `RSVP Confirmed: ${event.title} (Your Digital Pass)`
         : `RSVP Response Received: ${event.title}`;
 
-      const bodyText = isAttending
-        ? `Hi ${guest.first_name},\n\nYou are confirmed for ${event.title}!\nYour digital ticket code is: ${ticket?.ticket_code}.\nSee you there!`
-        : `Hi ${guest.first_name},\n\nWe have received your decline for ${event.title}. We hope to see you at the next one!`;
+      let bodyHtml: string | undefined;
+      let bodyText: string;
+
+      if (isAttending && ticket) {
+        try {
+          const qrDataUrl = await QRCode.toDataURL(ticket.qr_code_data, {
+            margin: 2,
+            width: 280,
+            color: { dark: "#0f172a", light: "#ffffff" },
+          });
+          bodyHtml = buildTicketEmailHtml(event, guest, ticket, qrDataUrl);
+        } catch (e) {
+          console.warn("Failed to generate QR data URL for email:", e);
+        }
+
+        bodyText = `Hi ${guest.first_name},\n\nYou are confirmed for ${event.title}!\nYour digital ticket code is: ${ticket.ticket_code}.\nDate: ${formatDate(event.start_date, event.timezone)} at ${formatTime(event.start_date, event.timezone)}\nVenue: ${event.location_name || event.location_address || 'See invitation'}\n\nPresent your ticket code or QR pass at the entrance gate. See you there!`;
+      } else {
+        bodyText = `Hi ${guest.first_name},\n\nWe have received your decline for ${event.title}. We hope to see you at the next one!`;
+      }
 
       await notificationService.send({
         eventId: event.id,
@@ -136,6 +267,7 @@ export class RsvpService {
         recipientName: `${guest.first_name} ${guest.last_name}`,
         notificationType: "confirmation",
         subject,
+        bodyHtml,
         bodyText,
       });
 
@@ -157,9 +289,45 @@ export class RsvpService {
       response,
       ticket,
       message: isAttending
-        ? "Thank you! Your RSVP is confirmed."
+        ? "Thank you! Your RSVP is confirmed and your digital ticket pass has been sent to your email."
         : "Thank you for letting us know.",
     };
+  }
+
+  public async resendConfirmationEmail(guestEmail: string, eventId: string): Promise<boolean> {
+    const event = db.events.find((e) => e.id === eventId);
+    const guest = db.guests.find((g) => g.event_id === eventId && g.email.toLowerCase() === guestEmail.toLowerCase().trim());
+    if (!event || !guest) return false;
+
+    const ticket = db.tickets.find((t) => t.guest_id === guest.id);
+    let qrDataUrl = "";
+    if (ticket) {
+      try {
+        qrDataUrl = await QRCode.toDataURL(ticket.qr_code_data, {
+          margin: 2,
+          width: 280,
+          color: { dark: "#0f172a", light: "#ffffff" },
+        });
+      } catch (err) {
+        console.warn(err);
+      }
+    }
+
+    const subject = `Your Digital Ticket Pass: ${event.title}`;
+    const bodyHtml = ticket ? buildTicketEmailHtml(event, guest, ticket, qrDataUrl) : undefined;
+    const bodyText = `Hi ${guest.first_name},\n\nHere is your ticket pass for ${event.title}. Code: ${ticket?.ticket_code || 'GUEST'}.`;
+
+    await notificationService.send({
+      eventId: event.id,
+      recipientEmail: guest.email,
+      recipientName: `${guest.first_name} ${guest.last_name}`,
+      notificationType: "confirmation",
+      subject,
+      bodyHtml,
+      bodyText,
+    });
+
+    return true;
   }
 
   public async getResponseForGuest(guestId: string): Promise<RsvpResponse | null> {

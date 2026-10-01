@@ -16,6 +16,9 @@ import {
   ArrowLeft,
   Sparkles,
   Ticket as TicketIcon,
+  Mail,
+  Loader2,
+  Building2,
 } from "lucide-react";
 import { Event } from "@/types/database";
 import { formatDate, formatTime, createIcsCalendarUrl, createGoogleCalendarUrl } from "@/lib/utils";
@@ -32,6 +35,10 @@ export default function ConfirmationPage({ params }: PageProps) {
 
   const [event, setEvent] = useState<Event | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [resendEmail, setResendEmail] = useState("");
+  const [isResending, setIsResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const [showEmailPrompt, setShowEmailPrompt] = useState(false);
   const isAttending = status === "attending";
 
   useEffect(() => {
@@ -73,6 +80,36 @@ export default function ConfirmationPage({ params }: PageProps) {
     loadData();
   }, [slug, ticketCode, isAttending]);
 
+  async function handleResendEmail(e: React.FormEvent) {
+    e.preventDefault();
+    if (!resendEmail.trim() || !event) return;
+    setIsResending(true);
+    setResendMessage(null);
+
+    try {
+      const res = await fetch("/api/rsvp/resend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: resendEmail.trim().toLowerCase(),
+          event_id: event.id,
+        }),
+      });
+
+      const d = await res.json();
+      if (res.ok) {
+        setResendMessage("Digital ticket pass and event details sent to your email!");
+        setShowEmailPrompt(false);
+      } else {
+        setResendMessage(d.error || "Failed to deliver ticket email. Please check your email address.");
+      }
+    } catch {
+      setResendMessage("Network error sending email.");
+    } finally {
+      setIsResending(false);
+    }
+  }
+
   function handlePrint() {
     window.print();
   }
@@ -106,7 +143,10 @@ export default function ConfirmationPage({ params }: PageProps) {
             <div className="bg-slate-900 text-white p-6 relative overflow-hidden">
               <div className="absolute right-0 top-0 -mr-6 -mt-6 h-28 w-28 rounded-full bg-sky-600/30 blur-2xl pointer-events-none" />
               <div className="flex items-center justify-between text-xs text-sky-400 font-bold uppercase tracking-wider mb-2">
-                <span>Official Digital Pass</span>
+                <span className="flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5" />
+                  Official Digital Pass
+                </span>
                 <span className="font-mono bg-white/10 px-2 py-0.5 rounded text-white text-[11px]">
                   {ticketCode}
                 </span>
@@ -114,6 +154,9 @@ export default function ConfirmationPage({ params }: PageProps) {
               <h2 className="text-xl font-bold tracking-tight text-white leading-tight">
                 {event.title}
               </h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Hosted by RSVP Pro Event Management
+              </p>
             </div>
 
             {/* Ticket Details & QR Code */}
@@ -168,11 +211,54 @@ export default function ConfirmationPage({ params }: PageProps) {
                   SCAN AT GATE • {ticketCode}
                 </span>
               </div>
+
+              {/* Resend to Email Feedback message */}
+              {resendMessage && (
+                <div className="rounded-xl bg-sky-50 border border-sky-200 p-3 text-xs text-sky-800 text-center font-medium animate-in fade-in">
+                  {resendMessage}
+                </div>
+              )}
+
+              {/* Resend to Email Prompt */}
+              {showEmailPrompt && (
+                <form onSubmit={handleResendEmail} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 space-y-3 animate-in fade-in">
+                  <span className="text-xs font-semibold text-slate-800 block">
+                    Send Ticket Pass & Event Details to Email:
+                  </span>
+                  <div className="flex gap-2">
+                    <input
+                      type="email"
+                      required
+                      value={resendEmail}
+                      onChange={(e) => setResendEmail(e.target.value)}
+                      placeholder="Enter your email address"
+                      className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-sky-500"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isResending || !resendEmail.trim()}
+                      className="rounded-xl bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-500 disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      {isResending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
+                      <span>Send</span>
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
 
             {/* Ticket Actions Bar */}
             <div className="border-t border-slate-100 bg-slate-50/80 px-6 py-4 flex flex-wrap items-center justify-between gap-3 text-xs print:hidden">
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEmailPrompt(!showEmailPrompt)}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100 shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Mail className="h-3.5 w-3.5 text-sky-600" />
+                  <span>Email Pass</span>
+                </button>
+
                 <a
                   href={createGoogleCalendarUrl({
                     title: event.title,
@@ -185,7 +271,7 @@ export default function ConfirmationPage({ params }: PageProps) {
                   rel="noopener noreferrer"
                   className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100 shadow-2xs"
                 >
-                  + Google Calendar
+                  + Google Cal
                 </a>
 
                 <a
@@ -199,16 +285,16 @@ export default function ConfirmationPage({ params }: PageProps) {
                   download={`${event.slug}.ics`}
                   className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-100 shadow-2xs"
                 >
-                  Download .ICS
+                  .ICS
                 </a>
               </div>
 
               <button
                 onClick={handlePrint}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 font-medium text-white hover:bg-slate-800 shadow-xs"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 font-medium text-white hover:bg-slate-800 shadow-xs cursor-pointer"
               >
                 <Printer className="h-3.5 w-3.5" />
-                <span>Print / Save Pass</span>
+                <span>Print Pass</span>
               </button>
             </div>
           </div>

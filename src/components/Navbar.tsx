@@ -49,6 +49,14 @@ export function Navbar() {
         {/* Right side CTAs */}
         <div className="flex items-center gap-2 sm:gap-3">
           <Link
+            href="/login"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+            title="Sign in with Google, Host, Admin, or Gatekeeper"
+          >
+            <span>Sign In</span>
+          </Link>
+
+          <Link
             href="/checkin"
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
             title="Open Live Check-In Gate"

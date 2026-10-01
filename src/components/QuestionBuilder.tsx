@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, HelpCircle, CheckSquare, ListOrdered, AlignLeft, Check, Loader2 } from "lucide-react";
+import { Plus, Trash2, HelpCircle, CheckSquare, ListOrdered, AlignLeft, Check, Loader2, FileUp, ImageIcon, Paperclip } from "lucide-react";
 import { RsvpQuestion, QuestionType } from "@/types/database";
 
 interface QuestionBuilderProps {
@@ -87,6 +87,10 @@ export function QuestionBuilder({ eventId, questions, onRefresh }: QuestionBuild
         return <CheckSquare className="h-4 w-4 text-indigo-600" />;
       case "boolean":
         return <Check className="h-4 w-4 text-emerald-600" />;
+      case "file_upload":
+        return <FileUp className="h-4 w-4 text-rose-600" />;
+      case "image_upload":
+        return <ImageIcon className="h-4 w-4 text-purple-600" />;
       default:
         return <AlignLeft className="h-4 w-4 text-amber-600" />;
     }
@@ -96,19 +100,19 @@ export function QuestionBuilder({ eventId, questions, onRefresh }: QuestionBuild
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h3 className="text-base font-semibold text-slate-900">Custom RSVP Questions</h3>
+          <h3 className="text-base font-semibold text-slate-900">Custom RSVP Questions & Form Builder</h3>
           <p className="text-xs text-slate-500">
-            Collect dietary preferences, meal choices, session breakouts, or custom information from your guests.
+            Create custom fields for options, text, photos, or PDF documents (Google Forms style).
           </p>
         </div>
 
         {!isAdding && (
           <button
             onClick={() => setIsAdding(true)}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2 text-xs sm:text-sm font-medium text-white shadow-xs hover:bg-slate-800 transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2 text-xs sm:text-sm font-medium text-white shadow-xs hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <Plus className="h-4 w-4" />
-            <span>Add Question</span>
+            <span>Add Custom Field</span>
           </button>
         )}
       </div>
@@ -120,11 +124,11 @@ export function QuestionBuilder({ eventId, questions, onRefresh }: QuestionBuild
           className="rounded-2xl border border-sky-200 bg-sky-50/40 p-5 shadow-xs space-y-4 animate-in fade-in duration-150"
         >
           <div className="flex items-center justify-between pb-2 border-b border-sky-100">
-            <span className="text-sm font-semibold text-sky-900">New RSVP Question</span>
+            <span className="text-sm font-semibold text-sky-900">New RSVP Field (Google Form style)</span>
             <button
               type="button"
               onClick={() => setIsAdding(false)}
-              className="text-xs text-slate-500 hover:text-slate-800 font-medium"
+              className="text-xs text-slate-500 hover:text-slate-800 font-medium cursor-pointer"
             >
               Cancel
             </button>
@@ -132,14 +136,14 @@ export function QuestionBuilder({ eventId, questions, onRefresh }: QuestionBuild
 
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">
-              Question Prompt <span className="text-rose-500">*</span>
+              Field Title / Question Prompt <span className="text-rose-500">*</span>
             </label>
             <input
               type="text"
               required
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g. Do you have any dietary restrictions?"
+              placeholder="e.g. Upload your Company ID / Resume, or choose your lunch option"
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
             />
           </div>
@@ -147,7 +151,7 @@ export function QuestionBuilder({ eventId, questions, onRefresh }: QuestionBuild
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">
-                Question Type
+                Field Type
               </label>
               <select
                 value={questionType}
@@ -159,6 +163,8 @@ export function QuestionBuilder({ eventId, questions, onRefresh }: QuestionBuild
                 <option value="text">Short Text Answer</option>
                 <option value="textarea">Long Text / Paragraph</option>
                 <option value="boolean">Yes / No Toggle</option>
+                <option value="file_upload">PDF / Document File Upload</option>
+                <option value="image_upload">Photo / Image Upload</option>
               </select>
             </div>
 
@@ -174,6 +180,15 @@ export function QuestionBuilder({ eventId, questions, onRefresh }: QuestionBuild
               </label>
             </div>
           </div>
+
+          {(questionType === "file_upload" || questionType === "image_upload") && (
+            <div className="rounded-xl border border-sky-200/80 bg-white p-3 text-xs text-sky-900 flex items-center gap-2.5">
+              <Paperclip className="h-4 w-4 text-sky-600 shrink-0" />
+              <span>
+                Guests will be prompted to upload their {questionType === "file_upload" ? "PDF document" : "image (PNG/JPG)"} directly in the RSVP form.
+              </span>
+            </div>
+          )}
 
           {(questionType === "single_choice" || questionType === "multiple_choice") && (
             <div>

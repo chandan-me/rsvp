@@ -87,6 +87,19 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
     }
   }
 
+  // Gate Section / Attendance Checkpoint state
+  const [activeSection, setActiveSection] = useState<string>("Main Entrance");
+  const [isCustomSection, setIsCustomSection] = useState(false);
+  const [customSectionInput, setCustomSectionInput] = useState("");
+
+  const PRESET_SECTIONS = [
+    "Main Entrance",
+    "VIP Lounge",
+    "Conference Hall",
+    "Workshop Zone",
+    "Dinner & Banquet",
+  ];
+
   // Camera video stream handling with mobile fallback
   async function startCamera(overrideFacing?: "environment" | "user") {
     setCameraError(null);
@@ -95,7 +108,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
     try {
       if (!navigator?.mediaDevices?.getUserMedia) {
         throw new Error(
-          "Direct video stream requires a secure context (HTTPS). Please tap 'Snap Photo' below to use your native phone camera!"
+          "Direct video stream requires a secure context (HTTPS) or device camera permission. Please ensure camera access is granted in browser settings."
         );
       }
 
@@ -138,7 +151,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
       setIsCameraActive(false);
       setCameraError(
         err?.message ||
-          "Unable to start live video stream. You can tap 'Snap Photo' below to snap a photo with your phone camera!"
+          "Unable to start live camera. Please grant camera permission in your browser or search attendee by ticket code or email."
       );
     }
   }
@@ -207,65 +220,6 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
     scanLoopRef.current = requestAnimationFrame(scan);
   }
 
-  // Handle Photo Snap or File Image QR decoding with rapid downscaling
-  function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setLoading(true);
-    setCameraError(null);
-    const reader = new FileReader();
-
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d", { willReadFrequently: true });
-        if (!ctx) {
-          setLoading(false);
-          return;
-        }
-
-        // Downscale image to max 1000px so jsQR processes in ~15ms without memory blowout
-        const MAX_DIM = 1000;
-        let w = img.width;
-        let h = img.height;
-        if (w > MAX_DIM || h > MAX_DIM) {
-          if (w > h) {
-            h = Math.round((h * MAX_DIM) / w);
-            w = MAX_DIM;
-          } else {
-            w = Math.round((w * MAX_DIM) / h);
-            h = MAX_DIM;
-          }
-        }
-
-        canvas.width = w;
-        canvas.height = h;
-        ctx.drawImage(img, 0, 0, w, h);
-
-        const imageData = ctx.getImageData(0, 0, w, h);
-        const code = jsQR(imageData.data, w, h, { inversionAttempts: "attemptBoth" });
-
-        if (code && code.data) {
-          handleProcessCheckin(code.data, "qr_scan");
-        } else {
-          setLastResult({
-            success: false,
-            code: "TICKET_NOT_FOUND",
-            message: "No QR code was detected in this photo. Please make sure the QR code is centered and clearly lit.",
-          });
-          playBeep("error");
-          setLoading(false);
-        }
-      };
-      img.src = event.target?.result as string;
-    };
-
-    reader.readAsDataURL(file);
-    e.target.value = "";
-  }
-
   // Generate mobile connect QR
   async function openMobileModal() {
     setShowMobileModal(true);
@@ -290,6 +244,8 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
     setLoading(true);
 
     try {
+      const chosenSection = isCustomSection && customSectionInput.trim() ? customSectionInput.trim() : activeSection;
+
       const res = await fetch("/api/checkin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -298,6 +254,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
           code_or_token: codeOrToken.trim(),
           method,
           pin: pin.trim() || undefined,
+          checkpoint: chosenSection,
         }),
       });
 
@@ -327,17 +284,6 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Hidden File Input for Native Camera Photo Capture (Native Label Clickable) */}
-      <input
-        type="file"
-        id="camera-photo-input"
-        ref={fileInputRef}
-        accept="image/*"
-        capture="environment"
-        onChange={handleFileSelected}
-        style={{ position: "fixed", top: "-1000px", left: "-1000px", opacity: 0.01 }}
-      />
-
       {/* Top Controller Bar */}
       <div className="flex items-center justify-between bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="flex items-center gap-2.5">
@@ -373,21 +319,75 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
         </div>
       </div>
 
+      {/* Attendance Section / Gate Checkpoint Selector (Above Camera) */}
+      <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-4 text-white shadow-md">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 mb-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+              Active Attendance Section
+            </span>
+          </div>
+          <span className="text-[11px] text-sky-400 font-medium">
+            Logging attendance to: <strong className="text-white underline">{isCustomSection && customSectionInput ? customSectionInput : activeSection}</strong>
+          </span>
+        </div>
+
+        {/* Section Pill Selectors */}
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {PRESET_SECTIONS.map((section) => {
+            const isSelected = !isCustomSection && activeSection === section;
+            return (
+              <button
+                key={section}
+                type="button"
+                onClick={() => {
+                  setIsCustomSection(false);
+                  setActiveSection(section);
+                }}
+                className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                  isSelected
+                    ? "bg-sky-500 text-white shadow-sm ring-2 ring-sky-300 ring-offset-1 ring-offset-slate-900"
+                    : "bg-slate-800/90 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700"
+                }`}
+              >
+                {section}
+              </button>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => setIsCustomSection(!isCustomSection)}
+            className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+              isCustomSection
+                ? "bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-300 ring-offset-1 ring-offset-slate-900"
+                : "bg-slate-800/90 text-slate-400 hover:bg-slate-700 hover:text-slate-200 border border-slate-700"
+            }`}
+          >
+            + Custom Section
+          </button>
+        </div>
+
+        {isCustomSection && (
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              type="text"
+              value={customSectionInput}
+              onChange={(e) => setCustomSectionInput(e.target.value)}
+              placeholder="e.g. Workshop Room 204, Speaker Green Room, Stage Door..."
+              className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none"
+            />
+          </div>
+        )}
+      </div>
+
       {cameraError && (
         <div className="rounded-xl bg-amber-50 border border-amber-200 p-3.5 text-xs text-amber-800 flex items-start gap-2.5">
           <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
           <div className="flex-1">
             <span className="font-semibold block mb-0.5">Camera Notice:</span>
             <p className="leading-relaxed">{cameraError}</p>
-            <div className="mt-2.5">
-              <label
-                htmlFor="camera-photo-input"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-amber-700 transition-colors cursor-pointer"
-              >
-                <Camera className="h-3.5 w-3.5" />
-                <span>Snap / Upload Photo Now</span>
-              </label>
-            </div>
           </div>
         </div>
       )}
@@ -446,34 +446,25 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
               <div>
                 <h4 className="text-sm sm:text-base font-bold text-white">Scanner Standby</h4>
                 <p className="text-xs text-slate-400 mt-1">
-                  Tap below to activate camera or take a photo of attendee's QR ticket:
+                  Tap below to start the live camera scanner for attendees:
                 </p>
               </div>
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-2">
+              <div className="flex items-center justify-center pt-2">
                 <button
                   type="button"
                   onClick={() => startCamera()}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-xs sm:text-sm font-bold text-white shadow-lg hover:bg-sky-500 active:scale-95 transition-all cursor-pointer"
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-6 py-3 text-xs sm:text-sm font-bold text-white shadow-lg hover:bg-sky-500 active:scale-95 transition-all cursor-pointer"
                 >
                   <Camera className="h-4 w-4" />
-                  <span>Live Video Scanner</span>
+                  <span>Start Live Video Scanner</span>
                 </button>
-
-                {/* Native Label wraps the file input for guaranteed native camera prompt on all phones */}
-                <label
-                  htmlFor="camera-photo-input"
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-xs sm:text-sm font-bold text-white shadow-lg hover:bg-emerald-500 active:scale-95 transition-all cursor-pointer"
-                >
-                  <Camera className="h-4 w-4" />
-                  <span>Snap Photo</span>
-                </label>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Manual Entry Bar with Native Camera Snap Label */}
+      {/* Manual Entry Bar */}
       <div className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5 shadow-xs">
         <form
           onSubmit={(e) => {
@@ -487,7 +478,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
               Manual Ticket / QR Code Lookup
             </label>
             <span className="text-[11px] text-slate-400">
-              Type code or tap camera to snap
+              Type ticket code (e.g. TK-E9XEAJ) or attendee email
             </span>
           </div>
 
@@ -499,17 +490,8 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
                 value={manualCode}
                 onChange={(e) => setManualCode(e.target.value)}
                 placeholder="Enter ticket code (e.g. TK-E9XEAJ) or email"
-                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-12 text-sm text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
               />
-
-              {/* Native Camera Snap Label inside input */}
-              <label
-                htmlFor="camera-photo-input"
-                title="Tap to snap photo of QR code"
-                className="absolute right-2 top-2 p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-slate-100 transition-colors cursor-pointer"
-              >
-                <Camera className="h-4 w-4" />
-              </label>
             </div>
 
             <button
@@ -589,9 +571,16 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
                 </div>
               )}
 
+              {lastResult.success && (
+                <div className="mt-2.5 flex items-center justify-between text-[11px] font-semibold text-emerald-800 bg-emerald-100/70 px-3 py-1.5 rounded-xl border border-emerald-200">
+                  <span>Attendance Recorded At:</span>
+                  <span className="font-bold underline">{isCustomSection && customSectionInput ? customSectionInput : activeSection}</span>
+                </div>
+              )}
+
               {lastResult.code === "ALREADY_CHECKED_IN" && lastResult.alreadyCheckedInAt && (
                 <div className="mt-2 text-[11px] font-medium text-amber-800 bg-amber-100/70 p-2 rounded-lg">
-                  Checked in at: {new Date(lastResult.alreadyCheckedInAt).toLocaleTimeString()}
+                  Previously checked in at: {new Date(lastResult.alreadyCheckedInAt).toLocaleTimeString()}
                 </div>
               )}
             </div>

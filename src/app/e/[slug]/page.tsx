@@ -15,6 +15,11 @@ import {
   AlertCircle,
   HelpCircle,
   CheckCircle2,
+  FileUp,
+  FileText,
+  Paperclip,
+  Image as ImageIcon,
+  Trash2,
 } from "lucide-react";
 import { Event, EventSettings, RsvpQuestion } from "@/types/database";
 import { formatDate, formatTime } from "@/lib/utils";
@@ -119,6 +124,28 @@ export default function PublicRsvpPage({ params }: PageProps) {
     });
   }
 
+  function handleFileUpload(questionId: string, file: File) {
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File exceeds maximum allowed size (5 MB). Please choose a smaller file.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const sizeFormatted = file.size > 1024 * 1024
+        ? `${(file.size / (1024 * 1024)).toFixed(2)} MB`
+        : `${Math.round(file.size / 1024)} KB`;
+
+      handleAnswerChange(questionId, {
+        fileName: file.name,
+        fileSize: sizeFormatted,
+        fileType: file.type,
+        dataUrl: reader.result as string,
+      });
+    };
+    reader.readAsDataURL(file);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!event) return;
@@ -126,9 +153,26 @@ export default function PublicRsvpPage({ params }: PageProps) {
     setError(null);
 
     try {
+      // Validate required questions including files
+      for (const q of questions) {
+        if (q.is_required && status === "attending") {
+          const ans = answers[q.id];
+          if (!ans || (typeof ans === "string" && !ans.trim()) || (Array.isArray(ans) && ans.length === 0)) {
+            throw new Error(`Please provide a response for: "${q.prompt}"`);
+          }
+        }
+      }
+
       // Format answers payload
       const formattedAnswers = questions.map((q) => {
         const val = answers[q.id];
+        if (val && typeof val === "object" && val.fileName) {
+          return {
+            question_id: q.id,
+            answer_text: `${val.fileName} (${val.fileSize})`,
+            answer_json: val,
+          };
+        }
         if (Array.isArray(val) || typeof val === "boolean") {
           return {
             question_id: q.id,
@@ -521,6 +565,108 @@ export default function PublicRsvpPage({ params }: PageProps) {
                         />
                         <span>Yes, I confirm</span>
                       </label>
+                    )}
+
+                    {/* PDF / Document File Upload (Google Forms style) */}
+                    {q.question_type === "file_upload" && (
+                      <div className="pt-1">
+                        {answers[q.id]?.fileName ? (
+                          <div className="flex items-center justify-between p-3 rounded-xl border border-sky-200 bg-sky-50/60 text-xs">
+                            <div className="flex items-center gap-2.5 overflow-hidden">
+                              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-100 text-rose-600 shrink-0 font-bold text-[10px]">
+                                PDF
+                              </div>
+                              <div className="truncate">
+                                <span className="font-semibold text-slate-900 block truncate">
+                                  {answers[q.id].fileName}
+                                </span>
+                                <span className="text-[11px] text-slate-500">
+                                  {answers[q.id].fileSize}
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleAnswerChange(q.id, null)}
+                              className="rounded-lg p-1 text-slate-400 hover:text-rose-600 hover:bg-white transition-colors cursor-pointer"
+                              title="Remove file"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-dashed border-slate-200 hover:border-sky-400 bg-slate-50/50 hover:bg-sky-50/30 transition-all cursor-pointer text-center group">
+                            <input
+                              type="file"
+                              accept=".pdf,.doc,.docx,application/pdf"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleFileUpload(q.id, file);
+                              }}
+                              className="hidden"
+                            />
+                            <FileUp className="h-6 w-6 text-slate-400 group-hover:text-sky-600 mb-1 transition-colors" />
+                            <span className="text-xs font-semibold text-slate-700 group-hover:text-sky-600">
+                              Upload PDF or Document
+                            </span>
+                            <span className="text-[11px] text-slate-400 mt-0.5">
+                              Max 5 MB • PDF, DOC, DOCX
+                            </span>
+                          </label>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Image / Photo Upload */}
+                    {q.question_type === "image_upload" && (
+                      <div className="pt-1">
+                        {answers[q.id]?.dataUrl ? (
+                          <div className="flex items-center justify-between p-3 rounded-xl border border-purple-200 bg-purple-50/60 text-xs">
+                            <div className="flex items-center gap-3 overflow-hidden">
+                              <img
+                                src={answers[q.id].dataUrl}
+                                alt="Uploaded preview"
+                                className="h-10 w-10 object-cover rounded-lg border border-purple-200 shrink-0"
+                              />
+                              <div className="truncate">
+                                <span className="font-semibold text-slate-900 block truncate">
+                                  {answers[q.id].fileName}
+                                </span>
+                                <span className="text-[11px] text-slate-500">
+                                  {answers[q.id].fileSize}
+                                </span>
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleAnswerChange(q.id, null)}
+                              className="rounded-lg p-1 text-slate-400 hover:text-rose-600 hover:bg-white transition-colors cursor-pointer"
+                              title="Remove photo"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-dashed border-slate-200 hover:border-purple-400 bg-slate-50/50 hover:bg-purple-50/30 transition-all cursor-pointer text-center group">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleFileUpload(q.id, file);
+                              }}
+                              className="hidden"
+                            />
+                            <ImageIcon className="h-6 w-6 text-slate-400 group-hover:text-purple-600 mb-1 transition-colors" />
+                            <span className="text-xs font-semibold text-slate-700 group-hover:text-purple-600">
+                              Upload Image / Photo
+                            </span>
+                            <span className="text-[11px] text-slate-400 mt-0.5">
+                              PNG, JPG, WEBP up to 5 MB
+                            </span>
+                          </label>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}

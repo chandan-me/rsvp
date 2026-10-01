@@ -8,9 +8,10 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { email, pin } = body;
+    const staffEmail = body.email || body.staff_email;
+    const staffPin = body.pin || body.passcode;
 
-    if (!email || !pin) {
+    if (!staffEmail || !staffPin) {
       return NextResponse.json(
         { success: false, error: "Both staff email and gate password/PIN are required." },
         { status: 400 }
@@ -24,7 +25,7 @@ export async function POST(
 
     const settings = await eventService.getEventSettings(id);
     const expectedPin = (settings.checkin_pin || "GATE-4821").trim();
-    const providedPin = String(pin).trim();
+    const providedPin = String(staffPin).trim();
 
     // Check PIN match (case-insensitive for convenience with prefix e.g. gate-4821 == GATE-4821)
     if (expectedPin.toLowerCase() !== providedPin.toLowerCase()) {
@@ -36,7 +37,7 @@ export async function POST(
 
     // Check staff email: allow configured staff_email, host email, or valid email format
     const configuredEmail = (settings.staff_email || "admin@craftconf.io").toLowerCase().trim();
-    const normalizedInput = String(email).toLowerCase().trim();
+    const normalizedInput = String(staffEmail).toLowerCase().trim();
 
     // If host has configured a specific staff email, verify it, or allow matching organizer email
     if (configuredEmail && configuredEmail !== normalizedInput && !normalizedInput.endsWith("@craftconf.io")) {

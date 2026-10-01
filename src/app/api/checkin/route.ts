@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
       codeOrToken: validated.code_or_token,
       method: validated.method,
       pin: validated.pin,
+      checkpoint: validated.checkpoint,
     });
 
     if (!result.success) {

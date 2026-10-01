@@ -5,6 +5,7 @@ export const checkinRequestSchema = z.object({
   code_or_token: z.string().min(3, "Code or token is required"),
   method: z.enum(["qr_scan", "manual"]).default("qr_scan"),
   pin: z.string().optional().nullable(),
+  checkpoint: z.string().optional().nullable(),
 });
 
 export type CheckinRequestInput = z.infer<typeof checkinRequestSchema>;

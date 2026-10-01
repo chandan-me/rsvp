@@ -17,9 +17,10 @@ export class CheckinService {
     codeOrToken: string;
     method?: "qr_scan" | "manual";
     pin?: string | null;
+    checkpoint?: string | null;
     operatorId?: string | null;
   }): Promise<CheckinResult> {
-    const { eventId, codeOrToken, method = "qr_scan", pin, operatorId } = params;
+    const { eventId, codeOrToken, method = "qr_scan", pin, checkpoint, operatorId } = params;
 
     // Check optional security PIN
     const settings = db.eventSettings.find((s) => s.event_id === eventId);
@@ -120,6 +121,7 @@ export class CheckinService {
       checked_in_by: operatorId || null,
       checkin_time: new Date().toISOString(),
       checkin_method: method,
+      checkpoint: checkpoint || "Main Gate",
       created_at: new Date().toISOString(),
     };
 
