@@ -224,15 +224,13 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
   // Generate mobile connect QR
   async function openMobileModal() {
     setShowMobileModal(true);
-    if (!mobileQrDataUrl && typeof window !== "undefined") {
-      const currentUrl = window.location.href;
-      try {
-        const res = await fetch(`/api/qr?text=${encodeURIComponent(currentUrl)}`);
-        const d = await res.json();
-        if (d.success) setMobileQrDataUrl(d.dataUrl);
-      } catch (err) {
-        console.error(err);
-      }
+    const targetUrl = "https://visits-filename-evident-affordable.trycloudflare.com/checkin";
+    try {
+      const res = await fetch(`/api/qr?text=${encodeURIComponent(targetUrl)}`);
+      const d = await res.json();
+      if (d.success) setMobileQrDataUrl(d.dataUrl);
+    } catch (err) {
+      console.error(err);
     }
   }
 
@@ -571,15 +569,20 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
               </div>
             </div>
 
-            <div className="rounded-xl bg-slate-50 p-2.5 text-left text-xs text-slate-600 space-y-1">
-              <span className="font-semibold text-slate-800 block text-[11px] uppercase">
-                Wi-Fi Address:
+            <div className="rounded-xl bg-slate-50 p-3 text-left text-xs text-slate-600 space-y-1.5 border border-slate-200/80">
+              <span className="font-semibold text-emerald-700 block text-[11px] uppercase tracking-wider">
+                Direct Mobile HTTPS Link:
               </span>
-              <p className="font-mono text-[11px] text-sky-700 break-all select-all">
-                http://192.168.31.153:3000/checkin
-              </p>
-              <p className="text-[10px] text-slate-400 mt-1">
-                Make sure your phone is connected to the same Wi-Fi network.
+              <a
+                href="https://visits-filename-evident-affordable.trycloudflare.com/checkin"
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-xs text-sky-700 font-bold hover:underline break-all block"
+              >
+                https://visits-filename-evident-affordable.trycloudflare.com/checkin
+              </a>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Works on any mobile device anywhere with full camera permissions enabled!
               </p>
             </div>
           </div>
