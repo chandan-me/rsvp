@@ -55,6 +55,7 @@ export interface EventSettings {
   notify_host_on_rsvp: boolean;
   confirmation_email_enabled: boolean;
   checkin_pin: string | null;
+  staff_email?: string | null;
   close_rsvp_at: string | null;
   is_rsvp_closed: boolean;
   created_at: string;

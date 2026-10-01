@@ -19,6 +19,7 @@ import {
   QrCode,
   Upload,
   X,
+  Sparkles,
 } from "lucide-react";
 import { CheckinResult } from "@/lib/services/checkinService";
 
@@ -46,7 +47,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
   const scanCooldownRef = useRef<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Audio tone synthesizer for tactile physical check-in feedback
+  // Audio synthesizer for check-in feedback
   function playBeep(type: "success" | "duplicate" | "error") {
     if (!soundEnabled || typeof window === "undefined") return;
     try {
@@ -82,48 +83,63 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
         osc.stop(ctx.currentTime + 0.3);
       }
     } catch {
-      // Audio autoplay restrictions or unsupported
+      // Audio autoplay restrictions
     }
   }
 
-  // Camera video stream handling
+  // Camera video stream handling with mobile fallback
   async function startCamera(overrideFacing?: "environment" | "user") {
     setCameraError(null);
     const mode = overrideFacing || facingMode;
 
     try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      if (!navigator?.mediaDevices?.getUserMedia) {
         throw new Error(
-          "Camera video streaming requires HTTPS or localhost. On mobile, please use the 'Snap Photo' camera icon button below!"
+          "Direct video stream requires a secure context (HTTPS). Please tap 'Snap Photo' below to use your native phone camera!"
         );
       }
 
       setIsCameraActive(true);
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: mode },
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: mode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch (e1) {
+        console.warn("Ideal facingMode constraint failed, trying fallback:", e1);
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
 
-      // Allow DOM to settle so videoRef is bound
-      setTimeout(async () => {
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.setAttribute("playsinline", "true");
-          try {
-            await videoRef.current.play();
-          } catch (playErr) {
-            console.warn("Video play error:", playErr);
-          }
-          startScanning();
+      const video = videoRef.current;
+      if (video) {
+        video.srcObject = stream;
+        video.muted = true;
+        video.playsInline = true;
+        video.setAttribute("playsinline", "true");
+        video.setAttribute("webkit-playsinline", "true");
+        try {
+          await video.play();
+        } catch (playErr) {
+          console.warn("Video play error:", playErr);
         }
-      }, 50);
+        startScanning();
+      }
     } catch (err: any) {
       console.warn("Camera start failed:", err);
+      setIsCameraActive(false);
       setCameraError(
         err?.message ||
-          "Unable to access live video stream. You can tap the Camera / Upload icon below to snap a photo of the QR code with your phone camera!"
+          "Unable to start live video stream. You can tap 'Snap Photo' below to snap a photo with your phone camera!"
       );
-      setIsCameraActive(false);
     }
   }
 
@@ -149,17 +165,24 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
 
   function startScanning() {
     const scan = () => {
-      if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
+      const video = videoRef.current;
+      if (video && video.readyState >= video.HAVE_CURRENT_DATA && video.videoWidth > 0) {
         const canvas = canvasRef.current;
         if (canvas) {
           const ctx = canvas.getContext("2d", { willReadFrequently: true });
           if (ctx) {
-            canvas.width = videoRef.current.videoWidth;
-            canvas.height = videoRef.current.videoHeight;
-            ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+            // Downsample video frames if too large for 60fps performance
+            const maxW = 640;
+            const scale = Math.min(1, maxW / video.videoWidth);
+            const w = Math.round(video.videoWidth * scale);
+            const h = Math.round(video.videoHeight * scale);
 
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            canvas.width = w;
+            canvas.height = h;
+            ctx.drawImage(video, 0, 0, w, h);
+
+            const imageData = ctx.getImageData(0, 0, w, h);
+            const code = jsQR(imageData.data, w, h, {
               inversionAttempts: "dontInvert",
             });
 
@@ -184,12 +207,13 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
     scanLoopRef.current = requestAnimationFrame(scan);
   }
 
-  // Handle Photo Snap or File Image QR decoding
+  // Handle Photo Snap or File Image QR decoding with rapid downscaling
   function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setLoading(true);
+    setCameraError(null);
     const reader = new FileReader();
 
     reader.onload = (event) => {
@@ -202,12 +226,26 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
           return;
         }
 
-        canvas.width = img.width;
-        canvas.height = img.height;
-        ctx.drawImage(img, 0, 0);
+        // Downscale image to max 1000px so jsQR processes in ~15ms without memory blowout
+        const MAX_DIM = 1000;
+        let w = img.width;
+        let h = img.height;
+        if (w > MAX_DIM || h > MAX_DIM) {
+          if (w > h) {
+            h = Math.round((h * MAX_DIM) / w);
+            w = MAX_DIM;
+          } else {
+            w = Math.round((w * MAX_DIM) / h);
+            h = MAX_DIM;
+          }
+        }
 
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = jsQR(imageData.data, imageData.width, imageData.height);
+        canvas.width = w;
+        canvas.height = h;
+        ctx.drawImage(img, 0, 0, w, h);
+
+        const imageData = ctx.getImageData(0, 0, w, h);
+        const code = jsQR(imageData.data, w, h, { inversionAttempts: "attemptBoth" });
 
         if (code && code.data) {
           handleProcessCheckin(code.data, "qr_scan");
@@ -225,7 +263,6 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
     };
 
     reader.readAsDataURL(file);
-    // Reset input
     e.target.value = "";
   }
 
@@ -289,92 +326,50 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
   }
 
   return (
-    <div className="space-y-6">
-      {/* Hidden File Input for Native Camera Photo Capture */}
+    <div className="space-y-4 sm:space-y-6">
+      {/* Hidden File Input for Native Camera Photo Capture (Native Label Clickable) */}
       <input
         type="file"
+        id="camera-photo-input"
         ref={fileInputRef}
         accept="image/*"
         capture="environment"
         onChange={handleFileSelected}
-        className="sr-only opacity-0 pointer-events-none absolute -z-10 w-0 h-0"
+        style={{ position: "fixed", top: "-1000px", left: "-1000px", opacity: 0.01 }}
       />
 
       {/* Top Controller Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
+      <div className="flex items-center justify-between bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+          <div className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-600 shrink-0">
             <ShieldCheck className="h-5 w-5" />
           </div>
           <div>
-            <h3 className="font-semibold text-slate-900 text-sm">Gate & Ticket Verification</h3>
-            <p className="text-xs text-slate-500">Scan digital QR ticket, snap photo, or enter ticket code</p>
+            <h3 className="font-semibold text-slate-900 text-xs sm:text-sm">Gate Ticket Scanner</h3>
+            <p className="text-[11px] sm:text-xs text-slate-500">Scan QR pass or verify ticket code</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setSoundEnabled(!soundEnabled)}
-            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors"
+            className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors cursor-pointer border border-slate-200/80"
             title={soundEnabled ? "Mute audio cues" : "Enable audio cues"}
           >
-            {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            {soundEnabled ? <Volume2 className="h-4 w-4 text-emerald-600" /> : <VolumeX className="h-4 w-4 text-slate-400" />}
           </button>
 
-          {/* Connect Mobile Modal Trigger */}
+          {/* Connect Mobile QR Modal Trigger */}
           <button
             type="button"
             onClick={openMobileModal}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
             title="Open on your phone with QR code"
           >
             <Smartphone className="h-4 w-4 text-sky-600" />
-            <span className="hidden sm:inline">Open on Mobile</span>
+            <span className="hidden sm:inline">Connect Mobile</span>
           </button>
-
-          {/* Snap Photo Button (Works on all mobile devices even without HTTPS) */}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors shadow-2xs"
-            title="Snap photo with camera or upload image"
-          >
-            <Camera className="h-4 w-4 text-slate-700" />
-            <span>Snap Photo</span>
-          </button>
-
-          {/* Live Video Camera Button */}
-          {!isCameraActive ? (
-            <button
-              type="button"
-              onClick={() => startCamera()}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-sky-500 transition-colors"
-            >
-              <Camera className="h-4 w-4" />
-              <span>Live Video Scanner</span>
-            </button>
-          ) : (
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={toggleCameraFlip}
-                className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 transition-colors"
-                title="Switch between front and back camera"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                <span>Flip</span>
-              </button>
-              <button
-                type="button"
-                onClick={stopCamera}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 transition-colors"
-              >
-                <CameraOff className="h-4 w-4" />
-                <span>Stop</span>
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
@@ -384,22 +379,21 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
           <div className="flex-1">
             <span className="font-semibold block mb-0.5">Camera Notice:</span>
             <p className="leading-relaxed">{cameraError}</p>
-            <div className="mt-2 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-amber-700 transition-colors"
+            <div className="mt-2.5">
+              <label
+                htmlFor="camera-photo-input"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-amber-700 transition-colors cursor-pointer"
               >
                 <Camera className="h-3.5 w-3.5" />
                 <span>Snap / Upload Photo Now</span>
-              </button>
+              </label>
             </div>
           </div>
         </div>
       )}
 
-      {/* Camera Viewport (Always in DOM for instant binding) */}
-      <div className="relative overflow-hidden rounded-2xl border-2 border-dashed border-slate-700/80 bg-slate-950 p-2 shadow-inner">
+      {/* Main Camera / Standby Viewport */}
+      <div className="relative overflow-hidden rounded-2xl border-2 border-slate-800 bg-slate-950 p-2 shadow-2xl">
         <div className="relative aspect-video max-h-[360px] mx-auto overflow-hidden rounded-xl bg-black flex items-center justify-center">
           <video
             ref={videoRef}
@@ -411,52 +405,76 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
           <canvas ref={canvasRef} className="hidden" />
 
           {isCameraActive ? (
-            /* Target Reticle */
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="relative h-48 w-48 rounded-2xl border-2 border-sky-400 bg-sky-500/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.45)] flex items-center justify-center">
-                <div className="h-40 w-40 border border-dashed border-sky-200/80 rounded-xl animate-pulse" />
-                <span className="absolute bottom-2 text-[10px] uppercase font-bold tracking-wider text-sky-200 bg-slate-900/80 px-2 py-0.5 rounded-full">
-                  Align QR Code
-                </span>
+            <>
+              {/* Target Reticle */}
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className="relative h-44 w-44 sm:h-52 sm:w-52 rounded-2xl border-2 border-sky-400 bg-sky-500/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] flex items-center justify-center">
+                  <div className="h-36 w-36 sm:h-44 sm:w-44 border border-dashed border-sky-200/80 rounded-xl animate-pulse" />
+                  <span className="absolute bottom-2 text-[10px] uppercase font-bold tracking-wider text-sky-200 bg-slate-900/90 px-2 py-0.5 rounded-full shadow-xs">
+                    Align Ticket QR
+                  </span>
+                </div>
               </div>
-            </div>
+
+              {/* Floating Camera Controls when Active */}
+              <div className="absolute top-3 right-3 flex items-center gap-2 z-20">
+                <button
+                  type="button"
+                  onClick={toggleCameraFlip}
+                  className="rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1"
+                  title="Switch camera"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Flip</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={stopCamera}
+                  className="rounded-xl bg-rose-600/90 backdrop-blur-md px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-500 transition-colors cursor-pointer flex items-center gap-1 shadow-sm"
+                >
+                  <CameraOff className="h-3.5 w-3.5" />
+                  <span>Stop</span>
+                </button>
+              </div>
+            </>
           ) : (
-            /* Inactive Scanner Standby UI */
-            <div className="text-center p-6 space-y-4">
+            /* Standby Card with Clear, Large Primary Action Buttons */
+            <div className="text-center p-5 sm:p-8 space-y-4 w-full max-w-sm">
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-sky-400 border border-slate-800 shadow-inner">
                 <QrCode className="h-7 w-7" />
               </div>
               <div>
-                <h4 className="text-sm font-semibold text-white">Scanner Standby</h4>
-                <p className="text-xs text-slate-400 max-w-xs mx-auto mt-1">
-                  Ready to scan attendee tickets. Start live camera or snap a photo:
+                <h4 className="text-sm sm:text-base font-bold text-white">Scanner Standby</h4>
+                <p className="text-xs text-slate-400 mt-1">
+                  Tap below to activate camera or take a photo of attendee's QR ticket:
                 </p>
               </div>
-              <div className="flex items-center justify-center gap-3 pt-1">
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-2">
                 <button
                   type="button"
                   onClick={() => startCamera()}
-                  className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-xs font-bold text-white shadow-md hover:bg-sky-500 transition-transform active:scale-95"
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-xs sm:text-sm font-bold text-white shadow-lg hover:bg-sky-500 active:scale-95 transition-all cursor-pointer"
                 >
                   <Camera className="h-4 w-4" />
-                  <span>Start Live Camera</span>
+                  <span>Live Video Scanner</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex items-center gap-2 rounded-xl bg-slate-800 border border-slate-700 px-4 py-2.5 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition-colors"
+
+                {/* Native Label wraps the file input for guaranteed native camera prompt on all phones */}
+                <label
+                  htmlFor="camera-photo-input"
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-xs sm:text-sm font-bold text-white shadow-lg hover:bg-emerald-500 active:scale-95 transition-all cursor-pointer"
                 >
-                  <Camera className="h-4 w-4 text-emerald-400" />
+                  <Camera className="h-4 w-4" />
                   <span>Snap Photo</span>
-                </button>
+                </label>
               </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Manual Entry Bar with Camera Icon Button */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
+      {/* Manual Entry Bar with Native Camera Snap Label */}
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5 shadow-xs">
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -469,36 +487,35 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
               Manual Ticket / QR Code Lookup
             </label>
             <span className="text-[11px] text-slate-400">
-              Type code or tap camera icon to scan
+              Type code or tap camera to snap
             </span>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
               <input
                 type="text"
                 value={manualCode}
                 onChange={(e) => setManualCode(e.target.value)}
-                placeholder="Enter ticket code (e.g. TK-SC-78912) or guest email/token"
-                className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-11 text-sm text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                placeholder="Enter ticket code (e.g. TK-E9XEAJ) or email"
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-12 text-sm text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
               />
 
-              {/* CAMERA ICON BUTTON INSIDE INPUT FIELD */}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                title="Tap to snap photo of QR code with camera"
-                className="absolute right-2 top-1.5 p-1 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-slate-100 transition-colors"
+              {/* Native Camera Snap Label inside input */}
+              <label
+                htmlFor="camera-photo-input"
+                title="Tap to snap photo of QR code"
+                className="absolute right-2 top-2 p-1.5 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-slate-100 transition-colors cursor-pointer"
               >
-                <Camera className="h-5 w-5" />
-              </button>
+                <Camera className="h-4 w-4" />
+              </label>
             </div>
 
             <button
               type="submit"
               disabled={loading || !manualCode.trim()}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-xs hover:bg-slate-800 transition-colors disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -521,64 +538,61 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
               : "bg-rose-50 border-rose-300 text-rose-900"
           }`}
         >
-          <div className="flex items-start gap-3.5">
-            {lastResult.success ? (
-              <CheckCircle2 className="h-7 w-7 text-emerald-600 shrink-0 mt-0.5" />
-            ) : lastResult.code === "ALREADY_CHECKED_IN" ? (
-              <Clock className="h-7 w-7 text-amber-600 shrink-0 mt-0.5" />
-            ) : (
-              <AlertCircle className="h-7 w-7 text-rose-600 shrink-0 mt-0.5" />
-            )}
+          <div className="flex items-start gap-3">
+            <div className="shrink-0 mt-0.5">
+              {lastResult.success ? (
+                <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+              ) : lastResult.code === "ALREADY_CHECKED_IN" ? (
+                <AlertCircle className="h-6 w-6 text-amber-600" />
+              ) : (
+                <AlertCircle className="h-6 w-6 text-rose-600" />
+              )}
+            </div>
 
-            <div className="flex-1">
+            <div className="flex-1 space-y-1">
               <div className="flex items-center justify-between">
-                <h4 className="text-base font-bold">
+                <span className="font-bold text-sm tracking-wide uppercase">
                   {lastResult.success
-                    ? "Check-In Verified!"
+                    ? "Check-In Approved"
                     : lastResult.code === "ALREADY_CHECKED_IN"
-                    ? "Warning: Duplicate Check-In Detected"
-                    : "Verification Failed"}
-                </h4>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-white/70">
-                  {lastResult.code}
+                    ? "Duplicate Check-In Detected"
+                    : "Check-In Rejected"}
                 </span>
+                <button
+                  type="button"
+                  onClick={() => setLastResult(null)}
+                  className="rounded-lg p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
 
-              <p className="mt-1 text-sm font-medium">{lastResult.message}</p>
+              <p className="text-xs">{lastResult.message}</p>
 
-              {/* Guest Card Details */}
               {lastResult.guest && (
-                <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white/80 p-3 rounded-xl border border-black/5 text-xs text-slate-800">
+                <div className="mt-3 pt-3 border-t border-black/10 flex items-center justify-between text-xs">
                   <div>
-                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Attendee</span>
-                    <span className="font-semibold text-slate-900">
+                    <span className="font-bold block text-sm">
                       {lastResult.guest.first_name} {lastResult.guest.last_name}
                     </span>
+                    <span className="text-[11px] opacity-80">{lastResult.guest.email}</span>
                   </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Email</span>
-                    <span className="truncate block font-mono">{lastResult.guest.email}</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Party Size</span>
-                    <span className="font-semibold">
-                      1 {lastResult.guest.plus_ones_count > 0 ? `+ ${lastResult.guest.plus_ones_count} plus-ones` : ""}
+
+                  <div className="text-right">
+                    <span className="font-mono text-xs font-bold block">
+                      {lastResult.ticket?.ticket_code || "TICKET"}
                     </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Ticket Code</span>
-                    <span className="font-mono font-semibold">
-                      {lastResult.ticket?.ticket_code || lastResult.guest.qr_token}
+                    <span className="text-[10px] uppercase font-semibold">
+                      +{lastResult.guest.plus_ones_count} Guests
                     </span>
                   </div>
                 </div>
               )}
 
               {lastResult.code === "ALREADY_CHECKED_IN" && lastResult.alreadyCheckedInAt && (
-                <p className="mt-2 text-xs text-amber-800 italic">
-                  Note: Attendee was already marked as present at{" "}
-                  {new Date(lastResult.alreadyCheckedInAt).toLocaleString()}. Duplicate badge was blocked.
-                </p>
+                <div className="mt-2 text-[11px] font-medium text-amber-800 bg-amber-100/70 p-2 rounded-lg">
+                  Checked in at: {new Date(lastResult.alreadyCheckedInAt).toLocaleTimeString()}
+                </div>
               )}
             </div>
           </div>
@@ -590,8 +604,9 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 animate-in fade-in">
           <div className="relative w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl text-center">
             <button
+              type="button"
               onClick={() => setShowMobileModal(false)}
-              className="absolute right-4 top-4 rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              className="absolute right-4 top-4 rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
             >
               <X className="h-5 w-5" />
             </button>

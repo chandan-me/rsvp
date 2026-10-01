@@ -109,7 +109,15 @@ export class EventService {
 
 
   public async createEvent(input: EventInput, userId?: string): Promise<Event> {
-    const id = `e${Date.now().toString(36)}${Math.random().toString(36).substring(2, 7)}`;
+    const id =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `e0000000-0000-4000-8000-${Date.now().toString(16).padStart(12, "0")}`;
+    const settingsId =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `s0000000-0000-4000-8000-${Date.now().toString(16).padStart(12, "0")}`;
+    const randomPin = `GATE-${Math.floor(1000 + Math.random() * 9000)}`;
     const slug = input.slug ? generateSlug(input.slug) : generateSlug(input.title);
 
     // Verify slug uniqueness
@@ -140,15 +148,19 @@ export class EventService {
     };
 
     db.events.unshift(newEvent);
+    this.eventsListCache = null; // Invalidate dashboard cache
+    this.eventCache.set(id, { event: newEvent, timestamp: Date.now() });
+    this.eventCache.set(`slug:${finalSlug}`, { event: newEvent, timestamp: Date.now() });
 
-    // Initialize default event settings
+    // Initialize default event settings with random gate password
     const newSettings: EventSettings = {
-      id: `s${Date.now().toString(36)}`,
+      id: settingsId,
       event_id: id,
       allow_guest_list_public: false,
       notify_host_on_rsvp: true,
       confirmation_email_enabled: true,
-      checkin_pin: null,
+      checkin_pin: randomPin,
+      staff_email: "admin@craftconf.io",
       close_rsvp_at: null,
       is_rsvp_closed: false,
       created_at: new Date().toISOString(),
@@ -160,7 +172,18 @@ export class EventService {
       try {
         const supabase = getSupabaseClient();
         await supabase.from("events").insert([newEvent]);
-        await supabase.from("event_settings").insert([newSettings]);
+        await supabase.from("event_settings").insert([
+          {
+            id: newSettings.id,
+            event_id: newSettings.event_id,
+            allow_guest_list_public: newSettings.allow_guest_list_public,
+            notify_host_on_rsvp: newSettings.notify_host_on_rsvp,
+            confirmation_email_enabled: newSettings.confirmation_email_enabled,
+            checkin_pin: newSettings.checkin_pin,
+            close_rsvp_at: newSettings.close_rsvp_at,
+            is_rsvp_closed: newSettings.is_rsvp_closed,
+          },
+        ]);
       } catch (err) {
         console.error("Supabase createEvent error:", err);
       }
@@ -181,27 +204,63 @@ export class EventService {
     };
 
     db.events[index] = updated;
+    this.eventsListCache = null;
     this.eventCache.set(id, { event: updated, timestamp: Date.now() });
     this.eventCache.set(`slug:${updated.slug}`, { event: updated, timestamp: Date.now() });
+
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const supabase = getSupabaseClient();
+        await supabase.from("events").update(input).eq("id", id);
+      } catch (err) {
+        console.error("Supabase updateEvent error:", err);
+      }
+    }
+
     return updated;
   }
 
   public async getEventSettings(eventId: string): Promise<EventSettings> {
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+          .from("event_settings")
+          .select("*")
+          .eq("event_id", eventId)
+          .single();
+
+        if (!error && data) {
+          return {
+            ...data,
+            checkin_pin: data.checkin_pin || "GATE-4821",
+            staff_email: "admin@craftconf.io",
+          } as EventSettings;
+        }
+      } catch (err) {
+        console.error("Supabase getEventSettings error:", err);
+      }
+    }
+
     let settings = db.eventSettings.find((s) => s.event_id === eventId);
     if (!settings) {
       settings = {
-        id: `s${Date.now().toString(36)}`,
+        id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `s${Date.now().toString(36)}`,
         event_id: eventId,
         allow_guest_list_public: false,
         notify_host_on_rsvp: true,
         confirmation_email_enabled: true,
-        checkin_pin: null,
+        checkin_pin: "GATE-4821",
+        staff_email: "admin@craftconf.io",
         close_rsvp_at: null,
         is_rsvp_closed: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
       db.eventSettings.push(settings);
+    } else if (!settings.checkin_pin) {
+      settings.checkin_pin = "GATE-4821";
+      if (!settings.staff_email) settings.staff_email = "admin@craftconf.io";
     }
     return settings;
   }
@@ -223,6 +282,26 @@ export class EventService {
       db.eventSettings[index] = updated;
     } else {
       db.eventSettings.push(updated);
+    }
+
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const supabase = getSupabaseClient();
+        await supabase
+          .from("event_settings")
+          .update({
+            allow_guest_list_public: updated.allow_guest_list_public,
+            notify_host_on_rsvp: updated.notify_host_on_rsvp,
+            confirmation_email_enabled: updated.confirmation_email_enabled,
+            checkin_pin: updated.checkin_pin,
+            close_rsvp_at: updated.close_rsvp_at,
+            is_rsvp_closed: updated.is_rsvp_closed,
+            updated_at: updated.updated_at,
+          })
+          .eq("event_id", eventId);
+      } catch (err) {
+        console.error("Supabase updateEventSettings error:", err);
+      }
     }
 
     return updated;

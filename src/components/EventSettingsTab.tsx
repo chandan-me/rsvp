@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Save, Loader2, CheckCircle2, Lock, Calendar, MapPin, Image as ImageIcon } from "lucide-react";
+import { Save, Loader2, CheckCircle2, Lock, Calendar, MapPin, Image as ImageIcon, Copy, Check, RefreshCw } from "lucide-react";
 import { Event, EventSettings } from "@/types/database";
 
 interface EventSettingsTabProps {
@@ -26,11 +26,27 @@ export function EventSettingsTab({ event, settings, onRefresh }: EventSettingsTa
   const [confirmationEmailEnabled, setConfirmationEmailEnabled] = useState(
     settings.confirmation_email_enabled
   );
-  const [checkinPin, setCheckinPin] = useState(settings.checkin_pin || "");
+  const [checkinPin, setCheckinPin] = useState(settings.checkin_pin || "GATE-4821");
+  const [staffEmail, setStaffEmail] = useState(settings.staff_email || "admin@craftconf.io");
+  const [copiedGateCreds, setCopiedGateCreds] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function generateRandomPin() {
+    const prefixes = ["GATE", "PASS", "VIP", "SEC"];
+    const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
+    const num = Math.floor(1000 + Math.random() * 9000);
+    setCheckinPin(`${prefix}-${num}`);
+  }
+
+  function copyGateCredentials() {
+    const text = `Event Check-In Station Credentials\nEvent: ${title}\nGatekeeper Email: ${staffEmail}\nGate Secret Password: ${checkinPin}\nDirect Link: ${window.location.origin}/events/${event.id}/checkin`;
+    navigator.clipboard.writeText(text);
+    setCopiedGateCreds(true);
+    setTimeout(() => setCopiedGateCreds(false), 2500);
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -68,6 +84,7 @@ export function EventSettingsTab({ event, settings, onRefresh }: EventSettingsTa
           is_rsvp_closed: isRsvpClosed,
           confirmation_email_enabled: confirmationEmailEnabled,
           checkin_pin: checkinPin.trim() || null,
+          staff_email: staffEmail.trim() || null,
         }),
       });
 
@@ -261,22 +278,84 @@ export function EventSettingsTab({ event, settings, onRefresh }: EventSettingsTa
           </label>
         </div>
 
-        <div className="pt-2 max-w-xs">
-          <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center gap-1.5">
-            <Lock className="h-3.5 w-3.5 text-slate-400" />
-            <span>Staff Check-In PIN (Optional)</span>
-          </label>
-          <input
-            type="text"
-            maxLength={6}
-            value={checkinPin}
-            onChange={(e) => setCheckinPin(e.target.value)}
-            placeholder="e.g. 7492"
-            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono"
-          />
-          <p className="text-[11px] text-slate-400 mt-1">
-            If set, door staff must enter this PIN to check in attendees.
-          </p>
+        {/* Gate Security & Passcode Configuration */}
+        <div className="pt-4 border-t border-slate-100 space-y-4">
+          <div>
+            <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+              <Lock className="h-4 w-4 text-sky-600" />
+              <span>Gate Station Authorization & Secret Token</span>
+            </h4>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Anyone opening the check-in station must enter this authorized email and secret gate passcode to unlock access.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Authorized Staff / Host Email
+              </label>
+              <input
+                type="email"
+                value={staffEmail}
+                onChange={(e) => setStaffEmail(e.target.value)}
+                placeholder="staff@craftconf.io"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">
+                Gate operators must enter this email to verify access.
+              </p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Secret Gate Password / Token
+                </label>
+                <button
+                  type="button"
+                  onClick={generateRandomPin}
+                  className="text-[11px] font-semibold text-sky-600 hover:text-sky-800 transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  <span>Generate Random</span>
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={checkinPin}
+                  onChange={(e) => setCheckinPin(e.target.value)}
+                  placeholder="e.g. GATE-7492"
+                  className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 font-mono font-bold tracking-wider"
+                />
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                You can change this password anytime or generate a random one.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={copyGateCredentials}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer shadow-2xs"
+            >
+              {copiedGateCreds ? (
+                <>
+                  <Check className="h-3.5 w-3.5 text-emerald-600" />
+                  <span className="text-emerald-700 font-bold">Credentials Copied!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5 text-slate-500" />
+                  <span>Copy Gate Credentials for Staff</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 

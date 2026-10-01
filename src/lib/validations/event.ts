@@ -22,7 +22,8 @@ export const eventSettingsSchema = z.object({
   allow_guest_list_public: z.boolean().default(false),
   notify_host_on_rsvp: z.boolean().default(true),
   confirmation_email_enabled: z.boolean().default(true),
-  checkin_pin: z.string().max(10).optional().nullable(),
+  checkin_pin: z.string().max(50, "PIN or token must be under 50 characters").optional().nullable(),
+  staff_email: z.string().email("Must be a valid email").optional().nullable().or(z.literal("")),
   close_rsvp_at: z.string().optional().nullable(),
   is_rsvp_closed: z.boolean().default(false),
 });
