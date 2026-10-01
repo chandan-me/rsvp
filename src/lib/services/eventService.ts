@@ -2,20 +2,65 @@ import { db } from "./dbProvider";
 import { Event, EventSettings, EventStats } from "@/types/database";
 import { EventInput, EventSettingsInput } from "@/lib/validations/event";
 import { generateSlug } from "@/lib/utils";
+import { isLiveSupabaseConfigured, getSupabaseClient } from "./supabaseAdapter";
 
 export class EventService {
   public async getEvents(): Promise<Event[]> {
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+          .from("events")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (!error && data) return data as Event[];
+      } catch (err) {
+        console.error("Supabase getEvents error, falling back to local:", err);
+      }
+    }
+
     return [...db.events].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
   }
 
   public async getEventById(id: string): Promise<Event | null> {
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+          .from("events")
+          .select("*")
+          .eq("id", id)
+          .single();
+
+        if (!error && data) return data as Event;
+      } catch (err) {
+        console.error("Supabase getEventById error, falling back to local:", err);
+      }
+    }
+
     const event = db.events.find((e) => e.id === id);
     return event || null;
   }
 
   public async getEventBySlug(slug: string): Promise<Event | null> {
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const supabase = getSupabaseClient();
+        const { data, error } = await supabase
+          .from("events")
+          .select("*")
+          .eq("slug", slug)
+          .single();
+
+        if (!error && data) return data as Event;
+      } catch (err) {
+        console.error("Supabase getEventBySlug error, falling back to local:", err);
+      }
+    }
+
     const event = db.events.find((e) => e.slug === slug);
     return event || null;
   }
@@ -67,6 +112,16 @@ export class EventService {
       updated_at: new Date().toISOString(),
     };
     db.eventSettings.push(newSettings);
+
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const supabase = getSupabaseClient();
+        await supabase.from("events").insert([newEvent]);
+        await supabase.from("event_settings").insert([newSettings]);
+      } catch (err) {
+        console.error("Supabase createEvent error:", err);
+      }
+    }
 
     return newEvent;
   }

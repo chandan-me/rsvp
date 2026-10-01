@@ -1,5 +1,6 @@
 -- ====================================================================
 -- Production-Grade Seed Data for Local Development & Testing
+-- Note: All UUIDs must strictly use hexadecimal characters (0-9, a-f)
 -- ====================================================================
 
 -- 1. Mock Profile (Organizer)
@@ -45,11 +46,11 @@ INSERT INTO events (
 -- 3. Event Membership (Owner)
 INSERT INTO event_members (id, event_id, user_id, role)
 VALUES (
-    'm0000000-0000-0000-0000-000000000001',
+    '10000000-0000-0000-0000-000000000001',
     'e0000000-0000-0000-0000-000000000001',
     'a0000000-0000-0000-0000-000000000001',
     'owner'
-) ON CONFLICT DO NOTHING;
+) ON CONFLICT (event_id, user_id) DO NOTHING;
 
 -- 4. Event Settings
 INSERT INTO event_settings (
@@ -62,7 +63,7 @@ INSERT INTO event_settings (
     close_rsvp_at,
     is_rsvp_closed
 ) VALUES (
-    's0000000-0000-0000-0000-000000000001',
+    '20000000-0000-0000-0000-000000000001',
     'e0000000-0000-0000-0000-000000000001',
     FALSE,
     TRUE,
@@ -76,7 +77,7 @@ INSERT INTO event_settings (
 -- Q1: Dietary Requirements (Single Choice)
 INSERT INTO rsvp_questions (id, event_id, prompt, question_type, is_required, order_index)
 VALUES (
-    'q0000000-0000-0000-0000-000000000001',
+    '30000000-0000-0000-0000-000000000001',
     'e0000000-0000-0000-0000-000000000001',
     'Do you have any dietary restrictions?',
     'single_choice',
@@ -85,16 +86,16 @@ VALUES (
 ) ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO rsvp_question_options (id, question_id, label, value, order_index) VALUES
-('o0000000-0000-0000-0000-000000000001', 'q0000000-0000-0000-0000-000000000001', 'Standard / Omnivore', 'standard', 1),
-('o0000000-0000-0000-0000-000000000002', 'q0000000-0000-0000-0000-000000000001', 'Vegetarian', 'vegetarian', 2),
-('o0000000-0000-0000-0000-000000000003', 'q0000000-0000-0000-0000-000000000001', 'Vegan', 'vegan', 3),
-('o0000000-0000-0000-0000-000000000004', 'q0000000-0000-0000-0000-000000000001', 'Gluten-Free', 'gluten_free', 4)
+('40000000-0000-0000-0000-000000000001', '30000000-0000-0000-0000-000000000001', 'Standard / Omnivore', 'standard', 1),
+('40000000-0000-0000-0000-000000000002', '30000000-0000-0000-0000-000000000001', 'Vegetarian', 'vegetarian', 2),
+('40000000-0000-0000-0000-000000000003', '30000000-0000-0000-0000-000000000001', 'Vegan', 'vegan', 3),
+('40000000-0000-0000-0000-000000000004', '30000000-0000-0000-0000-000000000001', 'Gluten-Free', 'gluten_free', 4)
 ON CONFLICT (id) DO NOTHING;
 
 -- Q2: Company / Affiliation (Text)
 INSERT INTO rsvp_questions (id, event_id, prompt, question_type, is_required, order_index)
 VALUES (
-    'q0000000-0000-0000-0000-000000000002',
+    '30000000-0000-0000-0000-000000000002',
     'e0000000-0000-0000-0000-000000000001',
     'What organization or company are you representing?',
     'text',
@@ -105,7 +106,7 @@ VALUES (
 -- Q3: Breakout Sessions of Interest (Multiple Choice)
 INSERT INTO rsvp_questions (id, event_id, prompt, question_type, is_required, order_index)
 VALUES (
-    'q0000000-0000-0000-0000-000000000003',
+    '30000000-0000-0000-0000-000000000003',
     'e0000000-0000-0000-0000-000000000001',
     'Which afternoon breakout tracks do you plan to join?',
     'multiple_choice',
@@ -114,9 +115,9 @@ VALUES (
 ) ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO rsvp_question_options (id, question_id, label, value, order_index) VALUES
-('o0000000-0000-0000-0000-000000000005', 'q0000000-0000-0000-0000-000000000003', 'High-Performance Web Architecture', 'arch', 1),
-('o0000000-0000-0000-0000-000000000006', 'q0000000-0000-0000-0000-000000000003', 'Design Systems & Micro-Interactions', 'design', 2),
-('o0000000-0000-0000-0000-000000000007', 'q0000000-0000-0000-0000-000000000003', 'AI-Augmented Engineering Workflows', 'ai_eng', 3)
+('40000000-0000-0000-0000-000000000005', '30000000-0000-0000-0000-000000000003', 'High-Performance Web Architecture', 'arch', 1),
+('40000000-0000-0000-0000-000000000006', '30000000-0000-0000-0000-000000000003', 'Design Systems & Micro-Interactions', 'design', 2),
+('40000000-0000-0000-0000-000000000007', '30000000-0000-0000-0000-000000000003', 'AI-Augmented Engineering Workflows', 'ai_eng', 3)
 ON CONFLICT (id) DO NOTHING;
 
 -- 6. Initial Seed Guests
@@ -124,7 +125,7 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO guests (
     id, event_id, first_name, last_name, email, phone, status, plus_ones_allowed, plus_ones_count, qr_token, notes
 ) VALUES (
-    'g0000000-0000-0000-0000-000000000001',
+    '50000000-0000-0000-0000-000000000001',
     'e0000000-0000-0000-0000-000000000001',
     'Sophia',
     'Chen',
@@ -139,9 +140,9 @@ INSERT INTO guests (
 
 INSERT INTO tickets (id, event_id, guest_id, ticket_code, qr_code_data, status)
 VALUES (
-    't0000000-0000-0000-0000-000000000001',
+    '60000000-0000-0000-0000-000000000001',
     'e0000000-0000-0000-0000-000000000001',
-    'g0000000-0000-0000-0000-000000000001',
+    '50000000-0000-0000-0000-000000000001',
     'TK-SC-78912',
     'RSVP:e0000000-0000-0000-0000-000000000001:TOKEN-SC-78912',
     'used'
@@ -149,10 +150,10 @@ VALUES (
 
 INSERT INTO checkins (id, event_id, ticket_id, guest_id, checked_in_by, checkin_time, checkin_method)
 VALUES (
-    'c0000000-0000-0000-0000-000000000001',
+    '70000000-0000-0000-0000-000000000001',
     'e0000000-0000-0000-0000-000000000001',
-    't0000000-0000-0000-0000-000000000001',
-    'g0000000-0000-0000-0000-000000000001',
+    '60000000-0000-0000-0000-000000000001',
+    '50000000-0000-0000-0000-000000000001',
     'a0000000-0000-0000-0000-000000000001',
     NOW() - INTERVAL '15 minutes',
     'qr_scan'
@@ -162,7 +163,7 @@ VALUES (
 INSERT INTO guests (
     id, event_id, first_name, last_name, email, phone, status, plus_ones_allowed, plus_ones_count, qr_token, notes
 ) VALUES (
-    'g0000000-0000-0000-0000-000000000002',
+    '50000000-0000-0000-0000-000000000002',
     'e0000000-0000-0000-0000-000000000001',
     'Marcus',
     'Vance',
@@ -177,9 +178,9 @@ INSERT INTO guests (
 
 INSERT INTO tickets (id, event_id, guest_id, ticket_code, qr_code_data, status)
 VALUES (
-    't0000000-0000-0000-0000-000000000002',
+    '60000000-0000-0000-0000-000000000002',
     'e0000000-0000-0000-0000-000000000001',
-    'g0000000-0000-0000-0000-000000000002',
+    '50000000-0000-0000-0000-000000000002',
     'TK-MV-33421',
     'RSVP:e0000000-0000-0000-0000-000000000001:TOKEN-MV-33421',
     'valid'
@@ -189,7 +190,7 @@ VALUES (
 INSERT INTO guests (
     id, event_id, first_name, last_name, email, phone, status, plus_ones_allowed, plus_ones_count, qr_token, notes
 ) VALUES (
-    'g0000000-0000-0000-0000-000000000003',
+    '50000000-0000-0000-0000-000000000003',
     'e0000000-0000-0000-0000-000000000001',
     'Elena',
     'Rostova',
@@ -206,7 +207,7 @@ INSERT INTO guests (
 INSERT INTO guests (
     id, event_id, first_name, last_name, email, phone, status, plus_ones_allowed, plus_ones_count, qr_token, notes
 ) VALUES (
-    'g0000000-0000-0000-0000-000000000004',
+    '50000000-0000-0000-0000-000000000004',
     'e0000000-0000-0000-0000-000000000001',
     'David',
     'Kim',
@@ -223,7 +224,7 @@ INSERT INTO guests (
 INSERT INTO guests (
     id, event_id, first_name, last_name, email, phone, status, plus_ones_allowed, plus_ones_count, qr_token, notes
 ) VALUES (
-    'g0000000-0000-0000-0000-000000000005',
+    '50000000-0000-0000-0000-000000000005',
     'e0000000-0000-0000-0000-000000000001',
     'Olivia',
     'Sterling',

@@ -15,6 +15,10 @@ import {
   Users,
   ShieldCheck,
   RefreshCw,
+  Smartphone,
+  QrCode,
+  Upload,
+  X,
 } from "lucide-react";
 import { CheckinResult } from "@/lib/services/checkinService";
 
@@ -25,18 +29,22 @@ interface CheckinScannerProps {
 
 export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProps) {
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [manualCode, setManualCode] = useState("");
   const [pin, setPin] = useState("");
   const [loading, setLoading] = useState(false);
   const [lastResult, setLastResult] = useState<CheckinResult | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [showMobileModal, setShowMobileModal] = useState(false);
+  const [mobileQrDataUrl, setMobileQrDataUrl] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const scanLoopRef = useRef<number | null>(null);
   const lastScannedCodeRef = useRef<string | null>(null);
   const scanCooldownRef = useRef<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Audio tone synthesizer for tactile physical check-in feedback
   function playBeep(type: "success" | "duplicate" | "error") {
@@ -52,7 +60,6 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
       gain.connect(ctx.destination);
 
       if (type === "success") {
-        // High double-beep
         osc.frequency.setValueAtTime(880, ctx.currentTime);
         osc.frequency.setValueAtTime(1174.66, ctx.currentTime + 0.08);
         gain.gain.setValueAtTime(0.15, ctx.currentTime);
@@ -60,7 +67,6 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
         osc.start(ctx.currentTime);
         osc.stop(ctx.currentTime + 0.25);
       } else if (type === "duplicate") {
-        // Low warning beep
         osc.frequency.setValueAtTime(440, ctx.currentTime);
         osc.frequency.setValueAtTime(330, ctx.currentTime + 0.12);
         gain.gain.setValueAtTime(0.2, ctx.currentTime);
@@ -68,7 +74,6 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
         osc.start(ctx.currentTime);
         osc.stop(ctx.currentTime + 0.35);
       } else {
-        // Flat buzzer
         osc.type = "sawtooth";
         osc.frequency.setValueAtTime(220, ctx.currentTime);
         gain.gain.setValueAtTime(0.2, ctx.currentTime);
@@ -82,12 +87,21 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
   }
 
   // Camera video stream handling
-  async function startCamera() {
+  async function startCamera(overrideFacing?: "environment" | "user") {
     setCameraError(null);
+    const mode = overrideFacing || facingMode;
+
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error(
+          "Camera video streaming requires HTTPS or localhost. On mobile, please use the 'Snap Photo' camera icon button below!"
+        );
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
+        video: { facingMode: mode },
       });
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.setAttribute("playsinline", "true");
@@ -98,9 +112,8 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
     } catch (err: any) {
       console.warn("Camera start failed:", err);
       setCameraError(
-        err?.name === "NotAllowedError"
-          ? "Camera permission denied. Please allow camera access in browser settings or use manual code entry."
-          : "Unable to access camera device. Please use manual code entry below."
+        err?.message ||
+          "Unable to access live video stream. You can tap the Camera / Upload icon below to snap a photo of the QR code with your phone camera!"
       );
       setIsCameraActive(false);
     }
@@ -117,6 +130,13 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
       videoRef.current.srcObject = null;
     }
     setIsCameraActive(false);
+  }
+
+  function toggleCameraFlip() {
+    const nextMode = facingMode === "environment" ? "user" : "environment";
+    setFacingMode(nextMode);
+    stopCamera();
+    startCamera(nextMode);
   }
 
   function startScanning() {
@@ -141,7 +161,6 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
                 scanCooldownRef.current = true;
                 handleProcessCheckin(code.data, "qr_scan");
 
-                // Cooldown for 2 seconds to avoid rapid duplicate scans of same physical QR code
                 setTimeout(() => {
                   scanCooldownRef.current = false;
                   lastScannedCodeRef.current = null;
@@ -155,6 +174,66 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
     };
 
     scanLoopRef.current = requestAnimationFrame(scan);
+  }
+
+  // Handle Photo Snap or File Image QR decoding
+  function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setLoading(true);
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        if (!ctx) {
+          setLoading(false);
+          return;
+        }
+
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+        if (code && code.data) {
+          handleProcessCheckin(code.data, "qr_scan");
+        } else {
+          setLastResult({
+            success: false,
+            code: "TICKET_NOT_FOUND",
+            message: "No QR code was detected in this photo. Please make sure the QR code is centered and clearly lit.",
+          });
+          playBeep("error");
+          setLoading(false);
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+
+    reader.readAsDataURL(file);
+    // Reset input
+    e.target.value = "";
+  }
+
+  // Generate mobile connect QR
+  async function openMobileModal() {
+    setShowMobileModal(true);
+    if (!mobileQrDataUrl && typeof window !== "undefined") {
+      const currentUrl = window.location.href;
+      try {
+        const res = await fetch(`/api/qr?text=${encodeURIComponent(currentUrl)}`);
+        const d = await res.json();
+        if (d.success) setMobileQrDataUrl(d.dataUrl);
+      } catch (err) {
+        console.error(err);
+      }
+    }
   }
 
   useEffect(() => {
@@ -205,6 +284,16 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
 
   return (
     <div className="space-y-6">
+      {/* Hidden File Input for Native Camera Photo Capture */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept="image/*"
+        capture="environment"
+        onChange={handleFileSelected}
+        className="hidden"
+      />
+
       {/* Top Controller Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs">
         <div className="flex items-center gap-2.5">
@@ -213,11 +302,11 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
           </div>
           <div>
             <h3 className="font-semibold text-slate-900 text-sm">Gate & Ticket Verification</h3>
-            <p className="text-xs text-slate-500">Scan digital QR ticket or enter ticket token</p>
+            <p className="text-xs text-slate-500">Scan digital QR ticket, snap photo, or enter ticket code</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setSoundEnabled(!soundEnabled)}
             className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors"
@@ -226,32 +315,72 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
             {soundEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </button>
 
+          {/* Connect Mobile Modal Trigger */}
+          <button
+            onClick={openMobileModal}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+            title="Open on your phone with QR code"
+          >
+            <Smartphone className="h-4 w-4 text-sky-600" />
+            <span className="hidden sm:inline">Open on Mobile</span>
+          </button>
+
+          {/* Snap Photo Button (Works on all mobile devices even without HTTPS) */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors shadow-2xs"
+            title="Snap photo with camera or upload image"
+          >
+            <Camera className="h-4 w-4 text-slate-700" />
+            <span>Snap Photo</span>
+          </button>
+
+          {/* Live Video Camera Button */}
           {!isCameraActive ? (
             <button
-              onClick={startCamera}
+              onClick={() => startCamera()}
               className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white shadow-xs hover:bg-sky-500 transition-colors"
             >
               <Camera className="h-4 w-4" />
-              <span>Start Camera Scanner</span>
+              <span>Live Video Scanner</span>
             </button>
           ) : (
-            <button
-              onClick={stopCamera}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 transition-colors"
-            >
-              <CameraOff className="h-4 w-4" />
-              <span>Stop Camera</span>
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={toggleCameraFlip}
+                className="inline-flex items-center gap-1 rounded-xl bg-slate-100 px-2.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200 transition-colors"
+                title="Switch between front and back camera"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                <span>Flip</span>
+              </button>
+              <button
+                onClick={stopCamera}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-700 transition-colors"
+              >
+                <CameraOff className="h-4 w-4" />
+                <span>Stop</span>
+              </button>
+            </div>
           )}
         </div>
       </div>
 
       {cameraError && (
-        <div className="rounded-xl bg-amber-50 border border-amber-200 p-3.5 text-xs text-amber-800 flex items-start gap-2">
+        <div className="rounded-xl bg-amber-50 border border-amber-200 p-3.5 text-xs text-amber-800 flex items-start gap-2.5">
           <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <span className="font-semibold">Notice: </span>
-            {cameraError}
+          <div className="flex-1">
+            <span className="font-semibold block mb-0.5">Camera Notice:</span>
+            <p className="leading-relaxed">{cameraError}</p>
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-bold text-white shadow-2xs hover:bg-amber-700 transition-colors"
+              >
+                <Camera className="h-3.5 w-3.5" />
+                <span>Snap / Upload Photo Now</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -276,7 +405,7 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
         </div>
       )}
 
-      {/* Manual Entry Bar */}
+      {/* Manual Entry Bar with Camera Icon Button */}
       <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-xs">
         <form
           onSubmit={(e) => {
@@ -285,9 +414,15 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
           }}
           className="space-y-3"
         >
-          <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
-            Manual Ticket / QR Code Lookup
-          </label>
+          <div className="flex items-center justify-between">
+            <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+              Manual Ticket / QR Code Lookup
+            </label>
+            <span className="text-[11px] text-slate-400">
+              Type code or tap camera icon to scan
+            </span>
+          </div>
+
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -296,9 +431,20 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
                 value={manualCode}
                 onChange={(e) => setManualCode(e.target.value)}
                 placeholder="Enter ticket code (e.g. TK-SC-78912) or guest email/token"
-                className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-4 text-sm text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-9 pr-11 text-sm text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
               />
+
+              {/* CAMERA ICON BUTTON INSIDE INPUT FIELD */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title="Tap to snap photo of QR code with camera"
+                className="absolute right-2 top-1.5 p-1 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-slate-100 transition-colors"
+              >
+                <Camera className="h-5 w-5" />
+              </button>
             </div>
+
             <button
               type="submit"
               disabled={loading || !manualCode.trim()}
@@ -384,6 +530,57 @@ export function CheckinScanner({ eventId, onCheckinSuccess }: CheckinScannerProp
                   {new Date(lastResult.alreadyCheckedInAt).toLocaleString()}. Duplicate badge was blocked.
                 </p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Connect Modal */}
+      {showMobileModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="relative w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl text-center">
+            <button
+              onClick={() => setShowMobileModal(false)}
+              className="absolute right-4 top-4 rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-50 text-sky-600 mb-3">
+              <Smartphone className="h-6 w-6" />
+            </div>
+
+            <h3 className="text-lg font-bold text-slate-900">Open on Your Mobile</h3>
+            <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+              Scan this QR code with your phone camera to open this check-in gate directly on your phone:
+            </p>
+
+            <div className="my-5 flex justify-center">
+              <div className="p-3 bg-white border border-slate-200 rounded-2xl shadow-inner">
+                {mobileQrDataUrl ? (
+                  <img
+                    src={mobileQrDataUrl}
+                    alt="Scan with phone"
+                    className="h-44 w-44 object-contain rounded-lg"
+                  />
+                ) : (
+                  <div className="h-44 w-44 flex items-center justify-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-slate-50 p-2.5 text-left text-xs text-slate-600 space-y-1">
+              <span className="font-semibold text-slate-800 block text-[11px] uppercase">
+                Wi-Fi Address:
+              </span>
+              <p className="font-mono text-[11px] text-sky-700 break-all select-all">
+                http://192.168.31.153:3000/checkin
+              </p>
+              <p className="text-[10px] text-slate-400 mt-1">
+                Make sure your phone is connected to the same Wi-Fi network.
+              </p>
             </div>
           </div>
         </div>

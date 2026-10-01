@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarCheck, Plus, Sparkles, Database } from "lucide-react";
+import { CalendarCheck, Plus, Sparkles, Database, Camera, QrCode } from "lucide-react";
 
 export function Navbar() {
   const pathname = usePathname();
@@ -47,18 +47,24 @@ export function Navbar() {
         </div>
 
         {/* Right side CTAs */}
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-1.5 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200/60 px-2.5 py-1 rounded-full">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="font-medium">Postgres / Supabase Ready</span>
-          </div>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link
+            href="/checkin"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+            title="Open Live Check-In Gate"
+          >
+            <Camera className="h-4 w-4 text-emerald-600" />
+            <span className="hidden sm:inline">Gate</span>
+            <span>Check-In</span>
+          </Link>
 
           <Link
             href="/events/new"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-2 text-xs sm:text-sm font-medium text-white shadow-sm hover:bg-sky-500 transition-all active:scale-[0.98]"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-2 text-xs sm:text-sm font-semibold text-white shadow-sm hover:bg-sky-500 transition-all active:scale-[0.98]"
           >
             <Plus className="h-4 w-4" />
-            <span>Create Event</span>
+            <span className="hidden sm:inline">Create</span>
+            <span>Event</span>
           </Link>
         </div>
       </div>

@@ -49,7 +49,7 @@ class InMemoryDB {
 
   public eventSettings: EventSettings[] = [
     {
-      id: "s0000000-0000-0000-0000-000000000001",
+      id: "20000000-0000-0000-0000-000000000001",
       event_id: "e0000000-0000-0000-0000-000000000001",
       allow_guest_list_public: false,
       notify_host_on_rsvp: true,
@@ -64,7 +64,7 @@ class InMemoryDB {
 
   public questions: (RsvpQuestion & { options?: RsvpQuestionOption[] })[] = [
     {
-      id: "q0000000-0000-0000-0000-000000000001",
+      id: "30000000-0000-0000-0000-000000000001",
       event_id: "e0000000-0000-0000-0000-000000000001",
       prompt: "Do you have any dietary restrictions?",
       question_type: "single_choice",
@@ -73,32 +73,32 @@ class InMemoryDB {
       created_at: new Date().toISOString(),
       options: [
         {
-          id: "o0000000-0000-0000-0000-000000000001",
-          question_id: "q0000000-0000-0000-0000-000000000001",
+          id: "40000000-0000-0000-0000-000000000001",
+          question_id: "30000000-0000-0000-0000-000000000001",
           label: "Standard / Omnivore",
           value: "standard",
           order_index: 1,
           created_at: new Date().toISOString(),
         },
         {
-          id: "o0000000-0000-0000-0000-000000000002",
-          question_id: "q0000000-0000-0000-0000-000000000001",
+          id: "40000000-0000-0000-0000-000000000002",
+          question_id: "30000000-0000-0000-0000-000000000001",
           label: "Vegetarian",
           value: "vegetarian",
           order_index: 2,
           created_at: new Date().toISOString(),
         },
         {
-          id: "o0000000-0000-0000-0000-000000000003",
-          question_id: "q0000000-0000-0000-0000-000000000001",
+          id: "40000000-0000-0000-0000-000000000003",
+          question_id: "30000000-0000-0000-0000-000000000001",
           label: "Vegan",
           value: "vegan",
           order_index: 3,
           created_at: new Date().toISOString(),
         },
         {
-          id: "o0000000-0000-0000-0000-000000000004",
-          question_id: "q0000000-0000-0000-0000-000000000001",
+          id: "40000000-0000-0000-0000-000000000004",
+          question_id: "30000000-0000-0000-0000-000000000001",
           label: "Gluten-Free",
           value: "gluten_free",
           order_index: 4,
@@ -107,7 +107,7 @@ class InMemoryDB {
       ],
     },
     {
-      id: "q0000000-0000-0000-0000-000000000002",
+      id: "30000000-0000-0000-0000-000000000002",
       event_id: "e0000000-0000-0000-0000-000000000001",
       prompt: "What organization or company are you representing?",
       question_type: "text",
@@ -117,7 +117,7 @@ class InMemoryDB {
       options: [],
     },
     {
-      id: "q0000000-0000-0000-0000-000000000003",
+      id: "30000000-0000-0000-0000-000000000003",
       event_id: "e0000000-0000-0000-0000-000000000001",
       prompt: "Which breakout tracks do you plan to join?",
       question_type: "multiple_choice",
@@ -126,24 +126,24 @@ class InMemoryDB {
       created_at: new Date().toISOString(),
       options: [
         {
-          id: "o0000000-0000-0000-0000-000000000005",
-          question_id: "q0000000-0000-0000-0000-000000000003",
+          id: "40000000-0000-0000-0000-000000000005",
+          question_id: "30000000-0000-0000-0000-000000000003",
           label: "High-Performance Web Architecture",
           value: "arch",
           order_index: 1,
           created_at: new Date().toISOString(),
         },
         {
-          id: "o0000000-0000-0000-0000-000000000006",
-          question_id: "q0000000-0000-0000-0000-000000000003",
+          id: "40000000-0000-0000-0000-000000000006",
+          question_id: "30000000-0000-0000-0000-000000000003",
           label: "Design Systems & Micro-Interactions",
           value: "design",
           order_index: 2,
           created_at: new Date().toISOString(),
         },
         {
-          id: "o0000000-0000-0000-0000-000000000007",
-          question_id: "q0000000-0000-0000-0000-000000000003",
+          id: "40000000-0000-0000-0000-000000000007",
+          question_id: "30000000-0000-0000-0000-000000000003",
           label: "AI-Augmented Engineering Workflows",
           value: "ai_eng",
           order_index: 3,
@@ -155,7 +155,7 @@ class InMemoryDB {
 
   public guests: Guest[] = [
     {
-      id: "g0000000-0000-0000-0000-000000000001",
+      id: "50000000-0000-0000-0000-000000000001",
       event_id: "e0000000-0000-0000-0000-000000000001",
       first_name: "Sophia",
       last_name: "Chen",
@@ -170,7 +170,7 @@ class InMemoryDB {
       updated_at: new Date(Date.now() - 3600000 * 24).toISOString(),
     },
     {
-      id: "g0000000-0000-0000-0000-000000000002",
+      id: "50000000-0000-0000-0000-000000000002",
       event_id: "e0000000-0000-0000-0000-000000000001",
       first_name: "Marcus",
       last_name: "Vance",
@@ -185,7 +185,7 @@ class InMemoryDB {
       updated_at: new Date(Date.now() - 3600000 * 12).toISOString(),
     },
     {
-      id: "g0000000-0000-0000-0000-000000000003",
+      id: "50000000-0000-0000-0000-000000000003",
       event_id: "e0000000-0000-0000-0000-000000000001",
       first_name: "Elena",
       last_name: "Rostova",
@@ -200,7 +200,7 @@ class InMemoryDB {
       updated_at: new Date(Date.now() - 3600000 * 6).toISOString(),
     },
     {
-      id: "g0000000-0000-0000-0000-000000000004",
+      id: "50000000-0000-0000-0000-000000000004",
       event_id: "e0000000-0000-0000-0000-000000000001",
       first_name: "David",
       last_name: "Kim",
@@ -215,7 +215,7 @@ class InMemoryDB {
       updated_at: new Date(Date.now() - 3600000 * 4).toISOString(),
     },
     {
-      id: "g0000000-0000-0000-0000-000000000005",
+      id: "50000000-0000-0000-0000-000000000005",
       event_id: "e0000000-0000-0000-0000-000000000001",
       first_name: "Olivia",
       last_name: "Sterling",
@@ -233,9 +233,9 @@ class InMemoryDB {
 
   public tickets: Ticket[] = [
     {
-      id: "t0000000-0000-0000-0000-000000000001",
+      id: "60000000-0000-0000-0000-000000000001",
       event_id: "e0000000-0000-0000-0000-000000000001",
-      guest_id: "g0000000-0000-0000-0000-000000000001",
+      guest_id: "50000000-0000-0000-0000-000000000001",
       ticket_code: "TK-SC-78912",
       qr_code_data: "RSVP:e0000000-0000-0000-0000-000000000001:TOKEN-SC-78912",
       status: "used",
@@ -243,9 +243,9 @@ class InMemoryDB {
       created_at: new Date(Date.now() - 3600000 * 24).toISOString(),
     },
     {
-      id: "t0000000-0000-0000-0000-000000000002",
+      id: "60000000-0000-0000-0000-000000000002",
       event_id: "e0000000-0000-0000-0000-000000000001",
-      guest_id: "g0000000-0000-0000-0000-000000000002",
+      guest_id: "50000000-0000-0000-0000-000000000002",
       ticket_code: "TK-MV-33421",
       qr_code_data: "RSVP:e0000000-0000-0000-0000-000000000001:TOKEN-MV-33421",
       status: "valid",
@@ -256,10 +256,10 @@ class InMemoryDB {
 
   public checkins: Checkin[] = [
     {
-      id: "c0000000-0000-0000-0000-000000000001",
+      id: "70000000-0000-0000-0000-000000000001",
       event_id: "e0000000-0000-0000-0000-000000000001",
-      ticket_id: "t0000000-0000-0000-0000-000000000001",
-      guest_id: "g0000000-0000-0000-0000-000000000001",
+      ticket_id: "60000000-0000-0000-0000-000000000001",
+      guest_id: "50000000-0000-0000-0000-000000000001",
       checked_in_by: "a0000000-0000-0000-0000-000000000001",
       checkin_time: new Date(Date.now() - 15 * 60000).toISOString(),
       checkin_method: "qr_scan",
@@ -269,9 +269,9 @@ class InMemoryDB {
 
   public responses: RsvpResponse[] = [
     {
-      id: "r0000000-0000-0000-0000-000000000001",
+      id: "80000000-0000-0000-0000-000000000001",
       event_id: "e0000000-0000-0000-0000-000000000001",
-      guest_id: "g0000000-0000-0000-0000-000000000001",
+      guest_id: "50000000-0000-0000-0000-000000000001",
       status: "attending",
       attending_count: 2,
       submitted_at: new Date(Date.now() - 3600000 * 24).toISOString(),
@@ -282,17 +282,17 @@ class InMemoryDB {
 
   public answers: RsvpAnswer[] = [
     {
-      id: "ans0000-0000-0000-0000-000000000001",
-      response_id: "r0000000-0000-0000-0000-000000000001",
-      question_id: "q0000000-0000-0000-0000-000000000001",
+      id: "90000000-0000-0000-0000-000000000001",
+      response_id: "80000000-0000-0000-0000-000000000001",
+      question_id: "30000000-0000-0000-0000-000000000001",
       answer_text: "vegetarian",
       answer_json: null,
       created_at: new Date().toISOString(),
     },
     {
-      id: "ans0000-0000-0000-0000-000000000002",
-      response_id: "r0000000-0000-0000-0000-000000000001",
-      question_id: "q0000000-0000-0000-0000-000000000002",
+      id: "90000000-0000-0000-0000-000000000002",
+      response_id: "80000000-0000-0000-0000-000000000001",
+      question_id: "30000000-0000-0000-0000-000000000002",
       answer_text: "Acme Design Lab",
       answer_json: null,
       created_at: new Date().toISOString(),
