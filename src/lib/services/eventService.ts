@@ -82,8 +82,7 @@ export class EventService {
 
     const event =
       db.events.find((e) => e.id === id || e.slug === id || e.id.toLowerCase() === id.toLowerCase()) ||
-      db.events.find((e) => (id.includes("7e571ab9") || id.includes("ai-summit")) && e.slug.includes("ai-summit")) ||
-      (id.startsWith("e000") || id.includes("7e571ab9") ? db.events[0] : null);
+      null;
 
     if (event) {
       this.eventCache.set(id, { event, timestamp: Date.now() });
