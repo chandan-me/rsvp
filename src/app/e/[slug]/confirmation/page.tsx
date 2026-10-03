@@ -44,6 +44,8 @@ export default function ConfirmationPage({ params }: PageProps) {
   const [isResending, setIsResending] = useState(false);
   const [resendMessage, setResendMessage] = useState<string | null>(null);
   const [showEmailPrompt, setShowEmailPrompt] = useState(false);
+  const isPendingApproval = status === "pending_approval";
+  const isWaitlisted = status === "waitlisted";
   const isAttending = status === "attending";
 
   useEffect(() => {
@@ -172,20 +174,84 @@ export default function ConfirmationPage({ params }: PageProps) {
         <div className="text-center print:hidden">
           <div
             className={`mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl shadow-sm ${
-              isAttending ? "bg-emerald-100 text-emerald-600" : "bg-slate-200 text-slate-700"
+              isPendingApproval
+                ? "bg-amber-100 text-amber-600"
+                : isWaitlisted
+                ? "bg-violet-100 text-violet-600"
+                : isAttending
+                ? "bg-emerald-100 text-emerald-600"
+                : "bg-slate-200 text-slate-700"
             }`}
           >
-            <CheckCircle2 className="h-8 w-8" />
+            {isPendingApproval ? (
+              <ShieldCheck className="h-8 w-8 text-amber-600" />
+            ) : isWaitlisted ? (
+              <Clock className="h-8 w-8 text-violet-600" />
+            ) : (
+              <CheckCircle2 className="h-8 w-8" />
+            )}
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-            {isAttending ? "You're on the Guest List!" : "Response Confirmed"}
+            {isPendingApproval
+              ? "Registration Submitted for Review"
+              : isWaitlisted
+              ? "You're on the Official Waitlist"
+              : isAttending
+              ? "You're on the Guest List!"
+              : "Response Confirmed"}
           </h1>
-          <p className="mt-1 text-xs sm:text-sm text-slate-500">
-            {isAttending
+          <p className="mt-1 text-xs sm:text-sm text-slate-500 max-w-md mx-auto">
+            {isPendingApproval
+              ? "This event requires host screening. Your registration has been received and is pending organizer approval. Once approved, your ticket QR code will be dispatched immediately."
+              : isWaitlisted
+              ? "The event is currently at capacity. You have been placed on the prioritized waitlist. If a spot opens up, you will be automatically promoted and notified."
+              : isAttending
               ? "Your digital pass has been issued. Present this QR code at the entrance for instant check-in."
               : "Thank you for letting us know. We hope to see you at future events!"}
           </p>
         </div>
+
+        {/* Pending Approval / Waitlist Card */}
+        {(isPendingApproval || isWaitlisted) && (
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm text-center space-y-4">
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-left space-y-2">
+              <div className="flex items-center justify-between text-xs font-semibold">
+                <span className="text-slate-500 uppercase tracking-wider text-[10px]">Reference Code</span>
+                <span className="font-mono bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-800">
+                  {ticketCode}
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                You can review or modify your registration details, dietary preferences, or answers at any time using your self-service portal link.
+              </p>
+            </div>
+
+            <Link
+              href={`/e/${slug}/rsvp/${ticketCode}`}
+              className="inline-flex items-center justify-center gap-2 w-full py-3 px-4 rounded-2xl bg-slate-900 text-white font-semibold text-xs hover:bg-slate-800 transition-colors shadow-sm"
+            >
+              <span>Open Attendee Self-Service Portal</span>
+              <ExternalLink className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        )}
+
+        {/* Self-Service Portal Link Card for Confirmed Guests */}
+        {isAttending && (
+          <div className="rounded-2xl border border-slate-200/90 bg-white/80 p-3.5 flex items-center justify-between gap-3 shadow-xs print:hidden">
+            <div className="text-left">
+              <span className="text-xs font-bold text-slate-900 block">Need to update answers or preferences?</span>
+              <span className="text-[11px] text-slate-500 block">Change dietary choices, view plus-ones, or cancel if plans change.</span>
+            </div>
+            <Link
+              href={`/e/${slug}/rsvp/${ticketCode}`}
+              className="shrink-0 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 px-3 py-1.5 text-xs font-semibold transition-colors flex items-center gap-1.5"
+            >
+              <span>Manage RSVP</span>
+              <ExternalLink className="h-3 w-3" />
+            </Link>
+          </div>
+        )}
 
         {/* Digital Ticket Pass Card */}
         {isAttending && event && (

@@ -37,7 +37,7 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await req.json();
-    const { user_id, station_name, passcode, notes } = body;
+    const { user_id, station_name, section_type, passcode, notes } = body;
 
     const event = await eventService.getEventById(id);
     if (!event) {
@@ -47,6 +47,7 @@ export async function POST(
     const newCred = await eventService.createGateCredential(id, {
       user_id,
       station_name,
+      section_type,
       passcode,
       notes,
     });

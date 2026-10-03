@@ -20,8 +20,9 @@ import {
   Paperclip,
   Image as ImageIcon,
   Trash2,
+  ShieldCheck,
 } from "lucide-react";
-import { Event, EventSettings, RsvpQuestion } from "@/types/database";
+import { Event, EventSettings, RsvpQuestion, TicketTier, PlusOneDetail } from "@/types/database";
 import { formatDate, formatTime } from "@/lib/utils";
 
 interface PageProps {
@@ -37,6 +38,9 @@ export default function PublicRsvpPage({ params }: PageProps) {
   const [event, setEvent] = useState<Event | null>(null);
   const [settings, setSettings] = useState<EventSettings | null>(null);
   const [questions, setQuestions] = useState<RsvpQuestion[]>([]);
+  const [tiers, setTiers] = useState<TicketTier[]>([]);
+  const [selectedTierId, setSelectedTierId] = useState<string>("");
+  const [isWaitlistMode, setIsWaitlistMode] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Form State
@@ -46,6 +50,7 @@ export default function PublicRsvpPage({ params }: PageProps) {
   const [phone, setPhone] = useState("");
   const [status, setStatus] = useState<"attending" | "declined">("attending");
   const [plusOnesCount, setPlusOnesCount] = useState(0);
+  const [plusOnesDetails, setPlusOnesDetails] = useState<PlusOneDetail[]>([]);
   const [notes, setNotes] = useState("");
   const [answers, setAnswers] = useState<Record<string, any>>({});
 
@@ -71,9 +76,30 @@ export default function PublicRsvpPage({ params }: PageProps) {
         const detailData = await resDetail.json();
         setSettings(detailData.settings);
 
-        const resQ = await fetch(`/api/events/${found.id}/questions`);
+        // Check capacity for waitlist
+        if (detailData.stats) {
+          const isFull =
+            detailData.stats.capacityLimit !== null &&
+            detailData.stats.capacityRemaining !== null &&
+            detailData.stats.capacityRemaining <= 0;
+          setIsWaitlistMode(isFull && Boolean(detailData.settings?.enable_waitlist));
+        }
+
+        const [resQ, resTiers] = await Promise.all([
+          fetch(`/api/events/${found.id}/questions`),
+          fetch(`/api/events/${found.id}/tiers`),
+        ]);
+
         const qData = await resQ.json();
         setQuestions(qData.questions || []);
+
+        if (resTiers.ok) {
+          const tData = await resTiers.json();
+          setTiers(tData.tiers || []);
+          if (tData.tiers && tData.tiers.length > 0) {
+            setSelectedTierId(tData.tiers[0].id);
+          }
+        }
 
         // Pre-fill if token was provided in URL
         if (tokenParam) {
@@ -99,6 +125,28 @@ export default function PublicRsvpPage({ params }: PageProps) {
 
     fetchEventDetails();
   }, [slug, tokenParam]);
+
+  function handleSetPlusOnes(count: number) {
+    setPlusOnesCount(count);
+    setPlusOnesDetails((prev) => {
+      const next: PlusOneDetail[] = [];
+      for (let i = 0; i < count; i++) {
+        next.push(prev[i] || { first_name: "", last_name: "", email: "" });
+      }
+      return next;
+    });
+  }
+
+  function handleUpdatePlusOne(index: number, field: keyof PlusOneDetail, value: string) {
+    setPlusOnesDetails((prev) => {
+      const copy = [...prev];
+      if (!copy[index]) {
+        copy[index] = { first_name: "", last_name: "", email: "" };
+      }
+      copy[index] = { ...copy[index], [field]: value };
+      return copy;
+    });
+  }
 
   function handleAnswerChange(questionId: string, val: any) {
     setAnswers((prev) => ({
@@ -198,6 +246,8 @@ export default function PublicRsvpPage({ params }: PageProps) {
           phone: phone.trim() || null,
           status,
           plus_ones_count: status === "attending" ? Number(plusOnesCount) : 0,
+          plus_ones_details: status === "attending" ? plusOnesDetails : [],
+          tier_id: selectedTierId || undefined,
           notes: notes.trim() || null,
           answers: formattedAnswers,
         }),
@@ -210,7 +260,8 @@ export default function PublicRsvpPage({ params }: PageProps) {
 
       // Successful submission -> redirect to confirmation page
       const ticketCode = data.ticket?.ticket_code || data.guest?.qr_token;
-      router.push(`/e/${slug}/confirmation?ticket=${ticketCode}&status=${status}`);
+      const returnedStatus = data.guest?.status || status;
+      router.push(`/e/${slug}/confirmation?ticket=${ticketCode}&status=${returnedStatus}`);
     } catch (err: any) {
       setError(err?.message || "An unexpected error occurred while saving your RSVP.");
       setSubmitting(false);
@@ -345,18 +396,16 @@ export default function PublicRsvpPage({ params }: PageProps) {
                 <button
                   type="button"
                   onClick={() => setStatus("attending")}
-                  className={`flex flex-col items-center justify-center rounded-2xl border-2 p-4 transition-all text-center ${
-                    status === "attending"
-                      ? "border-emerald-600 bg-emerald-50/70 text-emerald-950 font-bold shadow-xs scale-[1.01]"
-                      : "border-slate-200 hover:border-slate-300 text-slate-600 hover:bg-slate-50"
-                  }`}
+                  className={`flex flex-col items-center justify-center rounded-2xl border-2 p-4 transition-all text-center ${status === "attending"
+                    ? "border-emerald-600 bg-emerald-50/70 text-emerald-950 font-bold shadow-xs scale-[1.01]"
+                    : "border-slate-200 hover:border-slate-300 text-slate-600 hover:bg-slate-50"
+                    }`}
                 >
                   <div
-                    className={`flex h-9 w-9 items-center justify-center rounded-xl mb-2 ${
-                      status === "attending"
-                        ? "bg-emerald-600 text-white"
-                        : "bg-slate-100 text-slate-500"
-                    }`}
+                    className={`flex h-9 w-9 items-center justify-center rounded-xl mb-2 ${status === "attending"
+                      ? "bg-emerald-600 text-white"
+                      : "bg-slate-100 text-slate-500"
+                      }`}
                   >
                     <Check className="h-5 w-5" />
                   </div>
@@ -367,18 +416,16 @@ export default function PublicRsvpPage({ params }: PageProps) {
                 <button
                   type="button"
                   onClick={() => setStatus("declined")}
-                  className={`flex flex-col items-center justify-center rounded-2xl border-2 p-4 transition-all text-center ${
-                    status === "declined"
-                      ? "border-rose-600 bg-rose-50/70 text-rose-950 font-bold shadow-xs scale-[1.01]"
-                      : "border-slate-200 hover:border-slate-300 text-slate-600 hover:bg-slate-50"
-                  }`}
+                  className={`flex flex-col items-center justify-center rounded-2xl border-2 p-4 transition-all text-center ${status === "declined"
+                    ? "border-rose-600 bg-rose-50/70 text-rose-950 font-bold shadow-xs scale-[1.01]"
+                    : "border-slate-200 hover:border-slate-300 text-slate-600 hover:bg-slate-50"
+                    }`}
                 >
                   <div
-                    className={`flex h-9 w-9 items-center justify-center rounded-xl mb-2 ${
-                      status === "declined"
-                        ? "bg-rose-600 text-white"
-                        : "bg-slate-100 text-slate-500"
-                    }`}
+                    className={`flex h-9 w-9 items-center justify-center rounded-xl mb-2 ${status === "declined"
+                      ? "bg-rose-600 text-white"
+                      : "bg-slate-100 text-slate-500"
+                      }`}
                   >
                     <X className="h-5 w-5" />
                   </div>
@@ -387,6 +434,67 @@ export default function PublicRsvpPage({ params }: PageProps) {
                 </button>
               </div>
             </div>
+
+            {/* Screening Gate Banner */}
+            {settings?.requires_approval && status === "attending" && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/90 p-4 text-xs text-amber-900 flex items-start gap-3 shadow-xs">
+                <ShieldCheck className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-bold text-slate-900 block text-sm">Host Screening Required</span>
+                  <p className="text-amber-800 leading-relaxed">
+                    This event has attendee screening enabled. Your responses will be reviewed by the host, and your official digital ticket pass will be dispatched to your email upon approval.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Waitlist Mode Banner */}
+            {isWaitlistMode && status === "attending" && (
+              <div className="rounded-2xl border border-violet-200 bg-violet-50/90 p-4 text-xs text-violet-900 flex items-start gap-3 shadow-xs">
+                <Sparkles className="h-5 w-5 text-violet-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-bold text-slate-900 block text-sm">Event At Full Capacity — Priority Waitlist</span>
+                  <p className="text-violet-800 leading-relaxed">
+                    All standard tickets have been claimed. Submit your RSVP to join the priority waitlist — you will be automatically promoted and issued a ticket if any confirmed attendee cancels!
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Ticket Tier Selector */}
+            {status === "attending" && tiers.length > 0 && settings?.ticket_tiers_enabled && (
+              <div className="space-y-2 pt-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Select Admission Tier <span className="text-rose-500">*</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {tiers.map((t) => {
+                    const isSelected = selectedTierId === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setSelectedTierId(t.id)}
+                        className={`p-3 rounded-2xl border-2 text-left transition-all cursor-pointer ${isSelected
+                          ? "border-sky-600 bg-sky-50/60 shadow-xs scale-[1.01]"
+                          : "border-slate-200 hover:border-slate-300 bg-white"
+                          }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-slate-900">{t.name}</span>
+                          <span className="text-[10px] font-semibold text-slate-500">
+                            {t.price ? `$${t.price}` : "Free"}
+                          </span>
+                        </div>
+                        {t.description && (
+                          <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{t.description}</p>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Guest Details */}
             <div className="space-y-4 pt-2">
@@ -400,7 +508,7 @@ export default function PublicRsvpPage({ params }: PageProps) {
                     required
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="Jane"
+                    placeholder="your-name"
                     className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
                   />
                 </div>
@@ -413,7 +521,7 @@ export default function PublicRsvpPage({ params }: PageProps) {
                     required
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
-                    placeholder="Doe"
+                    placeholder="last-name"
                     className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
                   />
                 </div>
@@ -429,7 +537,7 @@ export default function PublicRsvpPage({ params }: PageProps) {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="jane.doe@example.com"
+                    placeholder="your-name.doe@example.com"
                     className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
                   />
                 </div>
@@ -449,26 +557,68 @@ export default function PublicRsvpPage({ params }: PageProps) {
 
               {/* Plus-Ones Selector (Only if attending) */}
               {status === "attending" && (
-                <div className="rounded-xl border border-slate-200 p-4 bg-slate-50/50">
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    Will you be bringing any additional guests? (+1s)
-                  </label>
-                  <div className="flex items-center gap-2 mt-2">
-                    {[0, 1, 2, 3].map((num) => (
-                      <button
-                        key={num}
-                        type="button"
-                        onClick={() => setPlusOnesCount(num)}
-                        className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-                          plusOnesCount === num
+                <div className="rounded-2xl border border-slate-200 p-4 bg-slate-50/60 space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700">
+                      Will you be bringing any additional guests? (+1s)
+                    </label>
+                    <div className="flex items-center gap-2 mt-2">
+                      {[0, 1, 2, 3].map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => handleSetPlusOnes(num)}
+                          className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${plusOnesCount === num
                             ? "bg-slate-900 text-white shadow-2xs"
                             : "bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
-                        }`}
-                      >
-                        {num === 0 ? "Just Me (1)" : `+${num} Guest${num > 1 ? "s" : ""}`}
-                      </button>
-                    ))}
+                            }`}
+                        >
+                          {num === 0 ? "Just Me (1)" : `+${num} Guest${num > 1 ? "s" : ""}`}
+                        </button>
+                      ))}
+                    </div>
                   </div>
+
+                  {plusOnesCount > 0 && (
+                    <div className="space-y-3 pt-3 border-t border-slate-200">
+                      <span className="text-xs font-bold text-slate-700 block">
+                        Individual Plus-One Passes (Full Name &amp; Email required):
+                      </span>
+                      {Array.from({ length: plusOnesCount }).map((_, idx) => (
+                        <div key={idx} className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase">
+                            Plus-One Guest #{idx + 1}
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <input
+                              type="text"
+                              required
+                              placeholder="First Name *"
+                              value={plusOnesDetails[idx]?.first_name || ""}
+                              onChange={(e) => handleUpdatePlusOne(idx, "first_name", e.target.value)}
+                              className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-sky-500"
+                            />
+                            <input
+                              type="text"
+                              required
+                              placeholder="Last Name *"
+                              value={plusOnesDetails[idx]?.last_name || ""}
+                              onChange={(e) => handleUpdatePlusOne(idx, "last_name", e.target.value)}
+                              className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-sky-500"
+                            />
+                            <input
+                              type="email"
+                              required
+                              placeholder="Email Address *"
+                              value={plusOnesDetails[idx]?.email || ""}
+                              onChange={(e) => handleUpdatePlusOne(idx, "email", e.target.value)}
+                              className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-sky-500"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -701,7 +851,15 @@ export default function PublicRsvpPage({ params }: PageProps) {
                   </>
                 ) : (
                   <>
-                    <span>Confirm RSVP</span>
+                    <span>
+                      {status === "declined"
+                        ? "Submit Decline"
+                        : isWaitlistMode
+                          ? "Join Priority Waitlist"
+                          : settings?.requires_approval
+                            ? "Submit Application for Screening"
+                            : "Confirm RSVP & Get Pass"}
+                    </span>
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}

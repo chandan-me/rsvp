@@ -17,6 +17,7 @@ import {
   Copy,
   Loader2,
   ExternalLink,
+  Sparkles,
 } from "lucide-react";
 import { Guest, GuestStatus } from "@/types/database";
 import { AddGuestModal } from "./AddGuestModal";
@@ -147,6 +148,46 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
     setTimeout(() => setCopiedCode(null), 2000);
   }
 
+  const [approvingGuestId, setApprovingGuestId] = useState<string | null>(null);
+  const [decliningGuestId, setDecliningGuestId] = useState<string | null>(null);
+
+  async function handleApproveGuest(guestId: string) {
+    setApprovingGuestId(guestId);
+    try {
+      const res = await fetch(`/api/events/${eventId}/guests/${guestId}/approve`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        onRefresh();
+      } else {
+        alert("Failed to approve guest registration.");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setApprovingGuestId(null);
+    }
+  }
+
+  async function handleDeclineGuest(guestId: string) {
+    if (!confirm("Decline this applicant? They will not receive a ticket pass.")) return;
+    setDecliningGuestId(guestId);
+    try {
+      const res = await fetch(`/api/events/${eventId}/guests/${guestId}/decline`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        onRefresh();
+      } else {
+        alert("Failed to decline registration.");
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setDecliningGuestId(null);
+    }
+  }
+
   const getStatusBadge = (status: GuestStatus) => {
     switch (status) {
       case "attending":
@@ -154,6 +195,20 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 border border-emerald-200/60">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
             <span>Attending</span>
+          </span>
+        );
+      case "pending_approval":
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700 border border-amber-300">
+            <Clock className="h-3.5 w-3.5 text-amber-600" />
+            <span>Screening Required</span>
+          </span>
+        );
+      case "waitlisted":
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700 border border-violet-200/60">
+            <Clock className="h-3.5 w-3.5 text-violet-600" />
+            <span>Waitlisted</span>
           </span>
         );
       case "declined":
@@ -173,8 +228,8 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
       case "pending":
       default:
         return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700 border border-amber-200/60">
-            <Clock className="h-3.5 w-3.5 text-amber-600" />
+          <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 border border-slate-200">
+            <Clock className="h-3.5 w-3.5 text-slate-500" />
             <span>Pending</span>
           </span>
         );
@@ -248,6 +303,11 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
         {[
           { id: "all", label: `All Guests (${guests.length})` },
           {
+            id: "pending_approval",
+            label: `Screening Queue (${guests.filter((g) => g.status === "pending_approval").length})`,
+            highlight: guests.some((g) => g.status === "pending_approval"),
+          },
+          {
             id: "attending",
             label: `Attending (${guests.filter((g) => g.status === "attending").length})`,
           },
@@ -256,30 +316,38 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
             label: `Checked In (${guests.filter((g) => g.isCheckedIn).length})`,
           },
           {
-            id: "pending",
-            label: `Pending (${guests.filter((g) => g.status === "pending").length})`,
+            id: "waitlisted",
+            label: `Waitlist (${guests.filter((g) => g.status === "waitlisted").length})`,
           },
           {
-            id: "invited",
-            label: `Invited (${guests.filter((g) => g.status === "invited").length})`,
+            id: "pending",
+            label: `Pending (${guests.filter((g) => g.status === "pending").length})`,
           },
           {
             id: "declined",
             label: `Declined (${guests.filter((g) => g.status === "declined").length})`,
           },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setStatusFilter(tab.id)}
-            className={`rounded-lg px-3 py-1.5 font-medium whitespace-nowrap transition-colors ${
-              statusFilter === tab.id
-                ? "bg-slate-900 text-white"
-                : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+        ].map((tab) => {
+          const isSelected = statusFilter === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setStatusFilter(tab.id)}
+              className={`rounded-lg px-3 py-1.5 font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 cursor-pointer ${
+                isSelected
+                  ? "bg-slate-900 text-white"
+                  : tab.highlight
+                  ? "bg-amber-50 text-amber-800 border border-amber-300 font-semibold"
+                  : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80"
+              }`}
+            >
+              {tab.highlight && !isSelected && (
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+              )}
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Guest Table */}
@@ -288,7 +356,7 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
           <table className="w-full text-left text-sm text-slate-600">
             <thead className="bg-slate-50/80 text-[11px] font-semibold uppercase tracking-wider text-slate-500 border-b border-slate-100">
               <tr>
-                <th scope="col" className="px-5 py-3.5">Guest</th>
+                <th scope="col" className="px-5 py-3.5">Guest &amp; Tier</th>
                 <th scope="col" className="px-4 py-3.5">RSVP Status</th>
                 <th scope="col" className="px-4 py-3.5">Party Size</th>
                 <th scope="col" className="px-4 py-3.5">Check-In</th>
@@ -307,10 +375,22 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
               ) : (
                 filteredGuests.map((guest) => (
                   <tr key={guest.id} className="hover:bg-slate-50/70 transition-colors">
-                    {/* Guest Name & Email */}
+                    {/* Guest Name, Tier & Email */}
                     <td className="px-5 py-3.5">
-                      <div className="font-semibold text-slate-900">
-                        {guest.first_name} {guest.last_name}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-semibold text-slate-900">
+                          {guest.first_name} {guest.last_name}
+                        </span>
+                        {guest.tier_name && (
+                          <span className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200/80 rounded px-1.5 py-0.2 inline-block">
+                            {guest.tier_name}
+                          </span>
+                        )}
+                        {guest.is_plus_one && (
+                          <span className="text-[10px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200/80 rounded px-1.5 py-0.2">
+                            Plus-One
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-slate-500">{guest.email}</div>
                       {guest.notes && (
@@ -354,7 +434,7 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
                         <button
                           onClick={() => handleQuickCheckin(guest)}
                           disabled={checkingInId === guest.id}
-                          className="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100 transition-colors disabled:opacity-50"
+                          className="inline-flex items-center gap-1 rounded-lg bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100 transition-colors disabled:opacity-50 cursor-pointer"
                         >
                           {checkingInId === guest.id ? (
                             <Loader2 className="h-3 w-3 animate-spin" />
@@ -363,6 +443,10 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
                           )}
                           <span>Check In</span>
                         </button>
+                      ) : guest.status === "pending_approval" ? (
+                        <span className="text-xs text-amber-600 font-medium">Awaiting Screening</span>
+                      ) : guest.status === "waitlisted" ? (
+                        <span className="text-xs text-violet-600 font-medium">Waitlisted</span>
                       ) : (
                         <span className="text-xs text-slate-400">Not Attending</span>
                       )}
@@ -378,7 +462,7 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
                           <button
                             onClick={() => copyToClipboard(guest.ticketCode!)}
                             title="Copy ticket code"
-                            className="text-slate-400 hover:text-slate-600"
+                            className="text-slate-400 hover:text-slate-600 cursor-pointer"
                           >
                             {copiedCode === guest.ticketCode ? (
                               <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -395,11 +479,60 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
                     {/* Actions */}
                     <td className="px-4 py-3.5 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
+                        {/* 1-Click Approve / Decline for Screening */}
+                        {guest.status === "pending_approval" && (
+                          <>
+                            <button
+                              onClick={() => handleApproveGuest(guest.id)}
+                              disabled={approvingGuestId === guest.id}
+                              title="Approve applicant & issue pass"
+                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                            >
+                              {approvingGuestId === guest.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Check className="h-3 w-3" />
+                              )}
+                              <span>Approve</span>
+                            </button>
+                            <button
+                              onClick={() => handleDeclineGuest(guest.id)}
+                              disabled={decliningGuestId === guest.id}
+                              title="Decline applicant"
+                              className="inline-flex items-center gap-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-2 py-1 text-xs font-semibold transition-colors cursor-pointer"
+                            >
+                              {decliningGuestId === guest.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <XCircle className="h-3 w-3" />
+                              )}
+                              <span>Decline</span>
+                            </button>
+                          </>
+                        )}
+
+                        {/* Promote for Waitlist */}
+                        {guest.status === "waitlisted" && (
+                          <button
+                            onClick={() => handleApproveGuest(guest.id)}
+                            disabled={approvingGuestId === guest.id}
+                            title="Promote from waitlist to attending"
+                            className="inline-flex items-center gap-1 rounded-lg bg-violet-600 hover:bg-violet-500 text-white px-2.5 py-1 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                          >
+                            {approvingGuestId === guest.id ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Sparkles className="h-3 w-3" />
+                            )}
+                            <span>Admit</span>
+                          </button>
+                        )}
+
                         <button
                           onClick={() => handleSendInvitation(guest.id)}
                           disabled={sendingInviteId === guest.id}
-                          title="Send invitation email"
-                          className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-sky-600 transition-colors disabled:opacity-50"
+                          title="Send pass / invitation email"
+                          className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-sky-600 transition-colors disabled:opacity-50 cursor-pointer"
                         >
                           {sendingInviteId === guest.id ? (
                             <Loader2 className="h-4 w-4 animate-spin text-sky-600" />
@@ -407,12 +540,13 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
                             <Mail className="h-4 w-4" />
                           )}
                         </button>
+
                         <button
                           onClick={() =>
                             handleDeleteGuest(guest.id, `${guest.first_name} ${guest.last_name}`)
                           }
                           title="Remove guest"
-                          className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors cursor-pointer"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>

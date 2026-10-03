@@ -96,7 +96,7 @@ export function AddGuestModal({ eventId, isOpen, onClose, onGuestAdded }: AddGue
                 required
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                placeholder="Jane"
+                placeholder="your-name"
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
               />
             </div>
@@ -124,7 +124,7 @@ export function AddGuestModal({ eventId, isOpen, onClose, onGuestAdded }: AddGue
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="jane.doe@example.com"
+              placeholder="your-name.doe@example.com"
               className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
             />
           </div>

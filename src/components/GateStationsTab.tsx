@@ -22,8 +22,15 @@ import {
   X,
   MapPin,
   Clock,
+  UtensilsCrossed,
+  Crown,
+  DoorOpen,
+  FlaskConical,
+  BarChart3,
+  RefreshCw,
 } from "lucide-react";
-import { Event, EventSettings, GateCredential } from "@/types/database";
+import { Event, EventSettings, GateCredential, StationSectionType } from "@/types/database";
+import { generateProfessionalId } from "@/lib/utils";
 
 interface GateStationsTabProps {
   eventId: string;
@@ -31,14 +38,25 @@ interface GateStationsTabProps {
   settings: EventSettings;
 }
 
+interface StationStats {
+  totalCheckins: number;
+  gateCount: number;
+  foodCount: number;
+  vipCount: number;
+  breakoutCount: number;
+  stations: { id: string; name: string; count: number; section: string }[];
+}
+
 export function GateStationsTab({ eventId, event, settings }: GateStationsTabProps) {
   const [credentials, setCredentials] = useState<(GateCredential & { checkinCount: number })[]>([]);
+  const [stats, setStats] = useState<StationStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCredId, setCopiedCredId] = useState<string | null>(null);
 
   // New Credential Form state
   const [isAdding, setIsAdding] = useState(false);
+  const [sectionType, setSectionType] = useState<StationSectionType>("gate");
   const [userId, setUserId] = useState("");
   const [stationName, setStationName] = useState("Main Entrance Gate");
   const [passcode, setPasscode] = useState("");
@@ -55,39 +73,94 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const gateCheckinUrl = `${origin}/checkin/${gateAccessKey}`;
 
-  const PRESET_STATIONS = [
-    "Main Entrance Gate",
-    "VIP Lounge & Reception",
-    "Conference Hall A",
-    "Breakout Workshop Room",
-    "Dinner & Banquet",
-  ];
+  const SECTION_CONFIGS: Record<
+    StationSectionType,
+    { label: string; defaultName: string; prefix: string; passPrefix: string; icon: any; colorClass: string; badgeClass: string }
+  > = {
+    gate: {
+      label: "Main Gate / Entrance",
+      defaultName: "Main Entrance Gate",
+      prefix: "GATE",
+      passPrefix: "GATE",
+      icon: DoorOpen,
+      colorClass: "text-sky-600 bg-sky-50 border-sky-200",
+      badgeClass: "bg-sky-50 text-sky-700 border-sky-200",
+    },
+    food: {
+      label: "Food & Catering",
+      defaultName: "Food & Catering Hall",
+      prefix: "FOOD",
+      passPrefix: "FOOD",
+      icon: UtensilsCrossed,
+      colorClass: "text-emerald-600 bg-emerald-50 border-emerald-200",
+      badgeClass: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    },
+    vip_lounge: {
+      label: "VIP Lounge & Reception",
+      defaultName: "VIP Hacker Lounge",
+      prefix: "VIP",
+      passPrefix: "VIP",
+      icon: Crown,
+      colorClass: "text-indigo-600 bg-indigo-50 border-indigo-200",
+      badgeClass: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    },
+    breakout: {
+      label: "Breakout Labs & Sessions",
+      defaultName: "Breakout Workshop Room",
+      prefix: "LABS",
+      passPrefix: "LABS",
+      icon: FlaskConical,
+      colorClass: "text-amber-600 bg-amber-50 border-amber-200",
+      badgeClass: "bg-amber-50 text-amber-700 border-amber-200",
+    },
+  };
 
-  async function loadCredentials() {
+  async function loadData() {
     try {
       setLoading(true);
-      const res = await fetch(`/api/events/${eventId}/gate-credentials`);
-      if (res.ok) {
-        const data = await res.json();
+      const [credsRes, statsRes] = await Promise.all([
+        fetch(`/api/events/${eventId}/gate-credentials`),
+        fetch(`/api/events/${eventId}/station-stats`),
+      ]);
+
+      if (credsRes.ok) {
+        const data = await credsRes.json();
         setCredentials(data.credentials || []);
       }
+
+      if (statsRes.ok) {
+        const statsData = await statsRes.json();
+        if (statsData.success) {
+          setStats(statsData.stats);
+        }
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Error loading station data:", err);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadCredentials();
+    loadData();
   }, [eventId]);
 
-  function handleRandomGenerate() {
-    const letters = ["NORTH", "SOUTH", "EAST", "WEST", "VIP", "ALPHA", "BRAVO", "MAIN"];
-    const randomTag = letters[Math.floor(Math.random() * letters.length)];
+  function handleSectionChange(type: StationSectionType) {
+    setSectionType(type);
+    const cfg = SECTION_CONFIGS[type];
+    setStationName(cfg.defaultName);
     const num = Math.floor(1 + Math.random() * 9);
-    setUserId(`GATE-${randomTag}-${num}`);
-    setPasscode(`GP-${Math.floor(100000 + Math.random() * 900000)}`);
+    const professionalStaffId = generateProfessionalId(
+      event?.title || "Event",
+      event?.start_date,
+      `${cfg.prefix}-0${num}`
+    );
+    setUserId(professionalStaffId);
+    setPasscode(`${cfg.passPrefix}-${Math.floor(1000 + Math.random() * 9000)}`);
+  }
+
+  function handleRandomGenerate() {
+    handleSectionChange(sectionType);
   }
 
   async function handleCreateCredential(e: React.FormEvent) {
@@ -107,6 +180,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
         body: JSON.stringify({
           user_id: userId.trim().toUpperCase(),
           station_name: stationName.trim(),
+          section_type: sectionType,
           passcode: passcode.trim(),
           notes: notes.trim() || undefined,
         }),
@@ -121,7 +195,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
       setPasscode("");
       setNotes("");
       setIsAdding(false);
-      loadCredentials();
+      loadData();
     } catch (err: any) {
       setError(err?.message || "Failed to save gate credential");
     } finally {
@@ -130,13 +204,13 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
   }
 
   async function handleDeleteCredential(credId: string) {
-    if (!confirm("Are you sure you want to delete this gate staff login?")) return;
+    if (!confirm("Are you sure you want to delete this station staff login?")) return;
     try {
       const res = await fetch(`/api/events/${eventId}/gate-credentials/${credId}`, {
         method: "DELETE",
       });
       if (res.ok) {
-        loadCredentials();
+        loadData();
       }
     } catch (err) {
       console.error(err);
@@ -151,7 +225,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
         body: JSON.stringify({ is_active: !currentStatus }),
       });
       if (res.ok) {
-        loadCredentials();
+        loadData();
       }
     } catch (err) {
       console.error(err);
@@ -165,7 +239,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
   }
 
   function copyStaffCredentials(cred: GateCredential) {
-    const text = `🚪 Gate Staff Credentials - ${event.title}\nGate Station Link: ${gateCheckinUrl}\nStation Name: ${cred.station_name}\nGate User ID: ${cred.user_id}\nPasscode PIN: ${cred.passcode}`;
+    const text = `🚪 Station Staff Credentials - ${event.title}\nStation Portal: ${gateCheckinUrl}\nAssigned Section: ${cred.station_name}\nStation Staff ID: ${cred.user_id}\nPasscode PIN: ${cred.passcode}`;
     navigator.clipboard.writeText(text);
     setCopiedCredId(cred.id);
     setTimeout(() => setCopiedCredId(null), 2500);
@@ -182,23 +256,23 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
     }
   }
 
-  const totalGateCheckins = credentials.reduce((sum, c) => sum + (c.checkinCount || 0), 0);
+  const totalGateCheckins = stats?.totalCheckins ?? credentials.reduce((sum, c) => sum + (c.checkinCount || 0), 0);
 
   return (
     <div className="space-y-6">
-      {/* Header Banner & Shareable Gate URL Box */}
-      <div className="rounded-3xl border border-slate-200/80 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 p-6 text-white shadow-xl">
+      {/* 1. Header Banner & Shareable Terminal URL */}
+      <div className="rounded-3xl border border-slate-200/90 bg-[#f8fafc] p-6 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
           <div className="space-y-1.5 max-w-xl">
-            <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/20 border border-emerald-500/40 px-3 py-1 text-xs font-bold text-emerald-300">
+            <div className="inline-flex items-center gap-2 rounded-full bg-sky-50 border border-sky-200 px-3 py-1 text-xs font-bold text-sky-700">
               <ShieldCheck className="h-3.5 w-3.5" />
-              <span>Multi-Staff Gate Station Access</span>
+              <span>Multi-Station Operational Security</span>
             </div>
-            <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">
-              Gate Staff Authorization & Stations
+            <h2 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900">
+              Station Credentials & Operational Tracking
             </h2>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              Create individual logins (User ID + Passcode) for your door security, check-in desks, and volunteer staff. Each check-in is logged with the operator's User ID and assigned station.
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+              Create dedicated, admin-controlled staff logins for each section: <strong>Main Gate</strong>, <strong>Food & Catering</strong>, <strong>VIP Lounge</strong>, and <strong>Breakouts</strong>. Check-ins are tracked and persisted independently in the database per station.
             </p>
           </div>
 
@@ -206,9 +280,9 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
             <button
               type="button"
               onClick={openQrModal}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800/90 border border-slate-700 px-3.5 py-2.5 text-xs font-bold text-white hover:bg-slate-700 transition-colors shadow-sm cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-white border border-slate-200 px-3.5 py-2.5 text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-xs cursor-pointer"
             >
-              <QrCode className="h-4 w-4 text-sky-400" />
+              <QrCode className="h-4 w-4 text-sky-600" />
               <span>Mobile QR</span>
             </button>
 
@@ -216,21 +290,21 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
               href={gateCheckinUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-500 transition-all shadow-md cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-sky-500 transition-all shadow-sm cursor-pointer"
             >
-              <span>Launch Gate Portal</span>
+              <span>Launch Station Terminal</span>
               <ExternalLink className="h-3.5 w-3.5" />
             </a>
           </div>
         </div>
 
-        {/* Dedicated Shareable Gate URL Bar */}
-        <div className="mt-5 rounded-2xl bg-black/40 border border-white/10 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+        {/* Shareable Station Portal URL Bar */}
+        <div className="mt-5 rounded-2xl bg-white border border-slate-200/80 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-2xs">
           <div className="flex items-center gap-2 overflow-hidden">
-            <span className="font-semibold text-slate-400 shrink-0 uppercase tracking-wider text-[10px]">
-              Gate Access URL:
+            <span className="font-bold text-slate-500 shrink-0 uppercase tracking-wider text-[10px]">
+              Terminal URL:
             </span>
-            <span className="font-mono text-emerald-300 truncate">
+            <span className="font-mono text-sky-700 font-bold truncate">
               {gateCheckinUrl}
             </span>
           </div>
@@ -238,74 +312,148 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
           <button
             type="button"
             onClick={copyGateLink}
-            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 px-3 py-1.5 font-semibold text-white transition-all shrink-0 cursor-pointer"
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 border border-sky-200 px-3 py-1.5 font-bold text-sky-700 transition-all shrink-0 cursor-pointer"
           >
             {copiedLink ? (
               <>
-                <Check className="h-3.5 w-3.5 text-emerald-400" />
-                <span className="text-emerald-300">Copied!</span>
+                <Check className="h-3.5 w-3.5 text-emerald-600" />
+                <span className="text-emerald-700">Copied!</span>
               </>
             ) : (
               <>
                 <Copy className="h-3.5 w-3.5" />
-                <span>Copy Link</span>
+                <span>Copy Terminal Link</span>
               </>
             )}
           </button>
         </div>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
-          <span className="text-xs font-semibold text-slate-500 block">Total Configured Staff</span>
-          <span className="text-2xl font-black text-slate-900 mt-1 block">
-            {credentials.length}
-          </span>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">
-            {credentials.filter((c) => c.is_active).length} Active Stations
-          </span>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs">
-          <span className="text-xs font-semibold text-slate-500 block">Gate Check-Ins Processed</span>
-          <span className="text-2xl font-black text-emerald-600 mt-1 block">
-            {totalGateCheckins}
-          </span>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Attributed to staff logins</span>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-2xs flex items-center justify-between">
-          <div>
-            <span className="text-xs font-semibold text-slate-500 block">Need another station?</span>
-            <span className="text-xs text-slate-700 font-bold block mt-1">Add Gate Staff Account</span>
+      {/* 2. Real-Time Section Checkpoint Dashboard */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4 text-sky-600" />
+            <h3 className="text-sm font-bold text-slate-900">Station Activity & Tracking Dashboard</h3>
           </div>
-          {!isAdding && (
-            <button
-              type="button"
-              onClick={() => {
-                setIsAdding(true);
-                handleRandomGenerate();
-              }}
-              className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800 transition-colors shadow-2xs cursor-pointer flex items-center gap-1"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Add</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={loadData}
+            className="text-xs text-sky-600 hover:text-sky-700 font-bold inline-flex items-center gap-1 cursor-pointer"
+          >
+            <RefreshCw className="h-3 w-3" />
+            <span>Refresh Stats</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Main Gate */}
+          <div className="rounded-2xl border border-slate-200 bg-[#f8fafc] p-4 shadow-xs relative overflow-hidden">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Main Gate</span>
+              <div className="p-2 rounded-xl bg-sky-100 text-sky-700 border border-sky-200">
+                <DoorOpen className="h-4 w-4" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <span className="text-3xl font-black text-slate-900">{stats?.gateCount ?? 0}</span>
+              <span className="text-xs text-slate-500 block mt-0.5">Attendee Arrivals</span>
+            </div>
+            <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-500 font-medium">
+              <span>Section: General Admission</span>
+              <span className="text-sky-700 font-bold">Active</span>
+            </div>
+          </div>
+
+          {/* Food & Catering */}
+          <div className="rounded-2xl border border-slate-200 bg-[#f8fafc] p-4 shadow-xs relative overflow-hidden">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Food & Catering</span>
+              <div className="p-2 rounded-xl bg-emerald-100 text-emerald-700 border border-emerald-200">
+                <UtensilsCrossed className="h-4 w-4" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <span className="text-3xl font-black text-slate-900">{stats?.foodCount ?? 0}</span>
+              <span className="text-xs text-slate-500 block mt-0.5">Meal Vouchers Redeemed</span>
+            </div>
+            <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-500 font-medium">
+              <span>Dietary alerts active</span>
+              <span className="text-emerald-700 font-bold">Live</span>
+            </div>
+          </div>
+
+          {/* VIP Lounge */}
+          <div className="rounded-2xl border border-slate-200 bg-[#f8fafc] p-4 shadow-xs relative overflow-hidden">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">VIP Lounge</span>
+              <div className="p-2 rounded-xl bg-indigo-100 text-indigo-700 border border-indigo-200">
+                <Crown className="h-4 w-4" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <span className="text-3xl font-black text-slate-900">{stats?.vipCount ?? 0}</span>
+              <span className="text-xs text-slate-500 block mt-0.5">VIP Admissions</span>
+            </div>
+            <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-500 font-medium">
+              <span>Tier Verified</span>
+              <span className="text-indigo-700 font-bold">Secured</span>
+            </div>
+          </div>
+
+          {/* Breakouts & Workshops */}
+          <div className="rounded-2xl border border-slate-200 bg-[#f8fafc] p-4 shadow-xs relative overflow-hidden">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Breakouts / Labs</span>
+              <div className="p-2 rounded-xl bg-amber-100 text-amber-700 border border-amber-200">
+                <FlaskConical className="h-4 w-4" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <span className="text-3xl font-black text-slate-900">{stats?.breakoutCount ?? 0}</span>
+              <span className="text-xs text-slate-500 block mt-0.5">Session Check-Ins</span>
+            </div>
+            <div className="mt-2 pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-500 font-medium">
+              <span>Total Scans: {totalGateCheckins}</span>
+              <span className="text-amber-700 font-bold">Tracked</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Add New Gate Staff Account Form */}
+      {/* 3. Section Account Action Bar */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <span className="text-xs font-bold text-slate-900 block">Configure Dedicated Station Credentials</span>
+          <span className="text-xs text-slate-500 block mt-0.5">
+            {credentials.length} configured staff accounts ({credentials.filter((c) => c.is_active).length} active)
+          </span>
+        </div>
+        {!isAdding && (
+          <button
+            type="button"
+            onClick={() => {
+              setIsAdding(true);
+              handleSectionChange("gate");
+            }}
+            className="rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white hover:bg-sky-500 transition-colors shadow-xs cursor-pointer inline-flex items-center gap-1.5 self-start sm:self-auto"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Create Station Login</span>
+          </button>
+        )}
+      </div>
+
+      {/* 4. Add New Station Staff Account Form */}
       {isAdding && (
         <form
           onSubmit={handleCreateCredential}
-          className="rounded-3xl border border-sky-200 bg-sky-50/50 p-5 sm:p-6 shadow-sm space-y-4 animate-in fade-in"
+          className="rounded-3xl border border-sky-300 bg-[#f8fafc] p-5 sm:p-6 shadow-sm space-y-4 animate-in fade-in"
         >
-          <div className="flex items-center justify-between pb-3 border-b border-sky-100">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-200">
             <div>
-              <h3 className="text-sm font-bold text-sky-950">New Gate Staff Account</h3>
-              <p className="text-xs text-sky-700">Set custom credentials or click Random Generate.</p>
+              <h3 className="text-sm font-bold text-slate-900">Create Dedicated Station Staff Login</h3>
+              <p className="text-xs text-slate-500">Assign this account to a specific section checkpoint.</p>
             </div>
             <button
               type="button"
@@ -323,6 +471,35 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
             </div>
           )}
 
+          {/* Section Selection Pills */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">
+              Select Operational Section
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {(Object.keys(SECTION_CONFIGS) as StationSectionType[]).map((type) => {
+                const cfg = SECTION_CONFIGS[type];
+                const Icon = cfg.icon;
+                const isSelected = sectionType === type;
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => handleSectionChange(type)}
+                    className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs font-bold transition-all text-left cursor-pointer ${
+                      isSelected
+                        ? "bg-sky-600 text-white border-sky-600 shadow-xs"
+                        : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{cfg.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <div className="flex items-center justify-between mb-1">
@@ -332,7 +509,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
                 <button
                   type="button"
                   onClick={handleRandomGenerate}
-                  className="text-[11px] text-sky-600 hover:text-sky-800 font-semibold cursor-pointer inline-flex items-center gap-1"
+                  className="text-[11px] text-sky-600 hover:text-sky-700 font-bold cursor-pointer inline-flex items-center gap-1"
                 >
                   <Sparkles className="h-3 w-3" />
                   <span>Random</span>
@@ -343,28 +520,22 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
                 required
                 value={userId}
                 onChange={(e) => setUserId(e.target.value.toUpperCase())}
-                placeholder="e.g. GATE-01"
+                placeholder="e.g. GBH-dec-2026-GATE-01"
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-sky-500"
               />
             </div>
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                Assigned Station Checkpoint
+                Assigned Station Name
               </label>
               <input
                 type="text"
-                list="station-presets"
                 value={stationName}
                 onChange={(e) => setStationName(e.target.value)}
                 placeholder="e.g. Main Entrance Gate"
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-sky-500"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 font-medium focus:outline-none focus:border-sky-500"
               />
-              <datalist id="station-presets">
-                {PRESET_STATIONS.map((s) => (
-                  <option key={s} value={s} />
-                ))}
-              </datalist>
             </div>
 
             <div>
@@ -392,7 +563,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="e.g. iPad at registration table 2, Volunteer Sarah"
+              placeholder="e.g. Laptop at table 2, Volunteer Sarah"
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-sky-500"
             />
           </div>
@@ -408,50 +579,51 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
             <button
               type="submit"
               disabled={creating}
-              className="rounded-xl bg-slate-900 px-5 py-2 text-xs font-bold text-white hover:bg-slate-800 transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shadow-sm"
+              className="rounded-xl bg-sky-600 px-5 py-2 text-xs font-bold text-white hover:bg-sky-500 transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5 shadow-sm"
             >
               {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-              <span>Save Gate Login</span>
+              <span>Save Station Account</span>
             </button>
           </div>
         </form>
       )}
 
-      {/* Gate Credentials List */}
-      <div className="rounded-3xl border border-slate-200/80 bg-white shadow-xs overflow-hidden">
+      {/* 5. Authorized Station Logins Table */}
+      <div className="rounded-3xl border border-slate-200/90 bg-white shadow-xs overflow-hidden">
         <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-bold text-slate-900">Authorized Gate Staff Logins</h3>
-            <p className="text-xs text-slate-500">Staff can unlock the scanner at your Gate Access URL using these credentials.</p>
+            <h3 className="text-sm font-bold text-slate-900">Authorized Section Logins</h3>
+            <p className="text-xs text-slate-500">Dedicated credentials for door security, catering staff, and VIP hosts.</p>
           </div>
           <button
             type="button"
-            onClick={loadCredentials}
-            className="text-xs text-slate-500 hover:text-slate-900 font-semibold cursor-pointer"
+            onClick={loadData}
+            className="text-xs text-sky-600 hover:text-sky-700 font-bold cursor-pointer inline-flex items-center gap-1"
           >
-            Refresh List
+            <RefreshCw className="h-3 w-3" />
+            <span>Refresh</span>
           </button>
         </div>
 
         {loading ? (
           <div className="p-8 text-center">
             <Loader2 className="h-6 w-6 animate-spin text-sky-600 mx-auto mb-2" />
-            <span className="text-xs text-slate-400">Loading gate credentials...</span>
+            <span className="text-xs text-slate-400">Loading station accounts...</span>
           </div>
         ) : credentials.length === 0 ? (
           <div className="p-8 text-center space-y-3">
             <ShieldCheck className="h-10 w-10 text-slate-300 mx-auto" />
-            <p className="text-xs text-slate-500">No specific gate logins created yet.</p>
+            <p className="text-xs text-slate-500">No specific station logins created yet.</p>
             <button
               type="button"
               onClick={() => {
                 setIsAdding(true);
-                handleRandomGenerate();
+                handleSectionChange("gate");
               }}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white shadow-xs"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-4 py-2 text-xs font-bold text-white shadow-xs"
             >
               <Plus className="h-3.5 w-3.5" />
-              <span>Create First Gate Login</span>
+              <span>Create First Station Login</span>
             </button>
           </div>
         ) : (
@@ -460,20 +632,29 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
               const isVisible = visiblePasswords[cred.id];
               const isCopied = copiedCredId === cred.id;
 
+              // Determine icon & config
+              const secType: StationSectionType =
+                cred.section_type ||
+                (cred.station_name.toLowerCase().includes("food") || cred.station_name.toLowerCase().includes("cater")
+                  ? "food"
+                  : cred.station_name.toLowerCase().includes("vip")
+                  ? "vip_lounge"
+                  : cred.station_name.toLowerCase().includes("breakout") || cred.station_name.toLowerCase().includes("lab")
+                  ? "breakout"
+                  : "gate");
+              const cfg = SECTION_CONFIGS[secType] || SECTION_CONFIGS.gate;
+              const SectionIcon = cfg.icon;
+
               return (
                 <div
                   key={cred.id}
-                  className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/60 transition-colors"
+                  className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/70 transition-colors"
                 >
                   <div className="flex items-start gap-3.5">
                     <div
-                      className={`flex h-10 w-10 items-center justify-center rounded-2xl shrink-0 font-mono font-bold text-xs ${
-                        cred.is_active
-                          ? "bg-emerald-100 text-emerald-700 border border-emerald-200"
-                          : "bg-slate-100 text-slate-400 border border-slate-200"
-                      }`}
+                      className={`flex h-10 w-10 items-center justify-center rounded-2xl shrink-0 border ${cfg.colorClass}`}
                     >
-                      {cred.user_id.slice(0, 4)}
+                      <SectionIcon className="h-5 w-5" />
                     </div>
 
                     <div className="space-y-1">
@@ -481,11 +662,14 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
                         <span className="font-mono font-bold text-slate-900 text-sm">
                           {cred.user_id}
                         </span>
-                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                        <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">
                           {cred.station_name}
                         </span>
+                        <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold border ${cfg.badgeClass}`}>
+                          {cfg.label}
+                        </span>
                         {cred.is_active ? (
-                          <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200/60">
+                          <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700 border border-emerald-200">
                             Active
                           </span>
                         ) : (
@@ -514,8 +698,8 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
                         </span>
 
                         <span>•</span>
-                        <span className="text-emerald-700 font-semibold">
-                          {cred.checkinCount} attendees checked in
+                        <span className="text-sky-700 font-bold">
+                          {cred.checkinCount} check-ins processed
                         </span>
 
                         {cred.last_login_at && (
@@ -600,19 +784,19 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
               <X className="h-5 w-5" />
             </button>
 
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600 mb-3">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-50 text-sky-600 mb-3 border border-sky-100">
               <Smartphone className="h-6 w-6" />
             </div>
 
-            <h3 className="text-lg font-bold text-slate-900">Scan to Open Gate Terminal</h3>
+            <h3 className="text-lg font-bold text-slate-900">Scan to Open Station Terminal</h3>
             <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-              Scan this QR code on any phone or iPad to launch the gate scanner station instantly:
+              Scan this QR code on any phone, iPad, or laptop to launch the check-in station terminal:
             </p>
 
             <div className="my-5 flex justify-center">
               {qrDataUrl ? (
                 <div className="p-3 bg-white border border-slate-200 rounded-2xl shadow-inner">
-                  <img src={qrDataUrl} alt="Gate Checkin QR" className="h-48 w-48 object-contain" />
+                  <img src={qrDataUrl} alt="Station Checkin QR" className="h-48 w-48 object-contain" />
                 </div>
               ) : (
                 <div className="h-48 w-48 bg-slate-100 rounded-2xl flex items-center justify-center">
@@ -621,7 +805,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
               )}
             </div>
 
-            <p className="text-[11px] font-mono text-slate-400 break-all">
+            <p className="text-[11px] font-mono text-slate-500 break-all bg-[#f8fafc] p-2 rounded-xl border border-slate-200">
               {gateCheckinUrl}
             </p>
           </div>

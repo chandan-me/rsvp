@@ -1,7 +1,7 @@
 import { db } from "./dbProvider";
 import { Guest, GuestStatus } from "@/types/database";
 import { GuestInput } from "@/lib/validations/guest";
-import { generateQrToken, generateTicketCode } from "@/lib/utils";
+import { generateQrToken, generateTicketCode, generateProfessionalId } from "@/lib/utils";
 
 export interface GuestFilterOptions {
   search?: string;
@@ -15,7 +15,9 @@ export class GuestService {
     eventId: string,
     options?: GuestFilterOptions
   ): Promise<(Guest & { isCheckedIn: boolean; checkinTime?: string; ticketCode?: string })[]> {
-    let guests = db.guests.filter((g) => g.event_id === eventId);
+    let guests = db.guests.filter(
+      (g) => g.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && g.event_id === "GBH-dec-2026-001")
+    );
 
     if (options?.search) {
       const q = options.search.toLowerCase().trim();
@@ -91,10 +93,14 @@ export class GuestService {
       throw new Error(`A guest with email "${input.email}" is already on the list for this event.`);
     }
 
-    const guestId = `g${Date.now().toString(36)}${Math.random().toString(36).substring(2, 6)}`;
-    const qrToken = `TOKEN-${input.first_name.slice(0, 2).toUpperCase()}-${Math.floor(
-      10000 + Math.random() * 90000
-    )}`;
+    const event = db.events.find((e) => e.id === eventId);
+    const randomNum = Math.floor(1000 + Math.random() * 9000);
+    const qrToken = generateProfessionalId(
+      event?.title || "Event",
+      event?.start_date,
+      randomNum
+    );
+    const guestId = `${qrToken}-GUEST`;
 
     const newGuest: Guest = {
       id: guestId,
@@ -116,9 +122,9 @@ export class GuestService {
 
     // If status is attending, generate ticket automatically
     if (newGuest.status === "attending") {
-      const ticketCode = generateTicketCode("TK");
+      const ticketCode = qrToken;
       db.tickets.push({
-        id: `t${Date.now().toString(36)}`,
+        id: `${qrToken}-TK`,
         event_id: eventId,
         guest_id: newGuest.id,
         ticket_code: ticketCode,
@@ -172,6 +178,59 @@ export class GuestService {
     db.checkins = db.checkins.filter((c) => c.guest_id !== id);
     db.responses = db.responses.filter((r) => r.guest_id !== id);
     return db.guests.length < initialLen;
+  }
+
+  public async blockGuest(eventId: string, guestId: string, reason: string): Promise<Guest | null> {
+    const guest = db.guests.find(
+      (g) => g.id === guestId && (g.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && g.event_id === "GBH-dec-2026-001"))
+    );
+    if (!guest) return null;
+
+    guest.is_blocked = true;
+    guest.blocked_reason = reason.trim();
+    guest.blocked_at = new Date().toISOString();
+    guest.status = "blocked";
+    guest.updated_at = new Date().toISOString();
+
+    return guest;
+  }
+
+  public async unblockGuest(eventId: string, guestId: string): Promise<Guest | null> {
+    const guest = db.guests.find(
+      (g) => g.id === guestId && (g.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && g.event_id === "GBH-dec-2026-001"))
+    );
+    if (!guest) return null;
+
+    guest.is_blocked = false;
+    guest.blocked_reason = null;
+    guest.blocked_at = null;
+    guest.status = "attending";
+    guest.updated_at = new Date().toISOString();
+
+    return guest;
+  }
+
+  public async regenerateQr(eventId: string, guestId: string): Promise<{ guest: Guest; ticket: any } | null> {
+    const guest = db.guests.find(
+      (g) => g.id === guestId && (g.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && g.event_id === "GBH-dec-2026-001"))
+    );
+    if (!guest) return null;
+
+    const event = db.events.find((e) => e.id === eventId);
+    const newRandom = Math.floor(1000 + Math.random() * 9000);
+    const newQrToken = generateProfessionalId(event?.title || "Event", event?.start_date, newRandom);
+
+    guest.qr_token = newQrToken;
+    guest.updated_at = new Date().toISOString();
+
+    let ticket = db.tickets.find((t) => t.guest_id === guestId);
+    if (ticket) {
+      ticket.ticket_code = newQrToken;
+      ticket.qr_code_data = `RSVP:${eventId}:${newQrToken}`;
+      ticket.status = "valid";
+    }
+
+    return { guest, ticket };
   }
 
   public async exportGuestsCsv(eventId: string): Promise<string> {

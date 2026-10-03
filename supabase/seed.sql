@@ -3,16 +3,18 @@
 -- Note: All UUIDs must strictly use hexadecimal characters (0-9, a-f)
 -- ====================================================================
 
--- 1. Mock Profile (Organizer)
+-- 1. Organizer Profile: Chandan N
 INSERT INTO profiles (id, email, full_name, avatar_url)
 VALUES (
     'a0000000-0000-0000-0000-000000000001',
-    'organizer@craftconf.io',
-    'Alex Rivera',
+    'chandan2004.n@gmail.com',
+    'Chandan N',
     'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80'
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET
+    email = EXCLUDED.email,
+    full_name = EXCLUDED.full_name;
 
--- 2. Mock Event: Craft & Code Summit 2026
+-- 2. Primary Event: Google Build Hackathon 2026
 INSERT INTO events (
     id,
     created_by,
@@ -30,18 +32,21 @@ INSERT INTO events (
 ) VALUES (
     'e0000000-0000-0000-0000-000000000001',
     'a0000000-0000-0000-0000-000000000001',
-    'Craft & Code Summit 2026',
-    'craft-and-code-summit-2026',
-    'An intimate gathering of visionary founders, designers, and software craftspeople. Join us for keynote discussions, hands-on architectural breakouts, and an evening networking reception under the glass atrium.',
+    'Google Build Hackathon 2026',
+    'google-build-hackathon-2026',
+    'A premier 48-hour builder hackathon for developers, researchers, and AI pioneers. Keynote sessions, hardware breakout labs, and an exclusive demo-day pitch session with venture leaders.',
     'https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=1600&q=80',
-    NOW() + INTERVAL '14 days',
-    NOW() + INTERVAL '14 days 6 hours',
-    'America/San_Francisco',
-    'The Foundry Atrium & Loft',
-    '450 Mission Street, Suite 800, San Francisco, CA 94105',
+    '2026-12-10 09:00:00+00',
+    '2026-12-12 18:00:00+00',
+    'America/Los_Angeles',
+    'Google Community Space & Tech Dome',
+    '188 Embarcadero, San Francisco, CA 94105',
     TRUE,
     150
-) ON CONFLICT (id) DO NOTHING;
+) ON CONFLICT (id) DO UPDATE SET
+    title = EXCLUDED.title,
+    slug = EXCLUDED.slug,
+    description = EXCLUDED.description;
 
 -- 3. Event Membership (Owner)
 INSERT INTO event_members (id, event_id, user_id, role)
@@ -134,8 +139,8 @@ INSERT INTO guests (
     'attending',
     1,
     1,
-    'TOKEN-SC-78912',
-    'Keynote speaker panelist'
+    'GBH-dec-2026-1001',
+    'Keynote Speaker & AI Research Fellow'
 ) ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO tickets (id, event_id, guest_id, ticket_code, qr_code_data, status)
@@ -143,8 +148,8 @@ VALUES (
     '60000000-0000-0000-0000-000000000001',
     'e0000000-0000-0000-0000-000000000001',
     '50000000-0000-0000-0000-000000000001',
-    'TK-SC-78912',
-    'RSVP:e0000000-0000-0000-0000-000000000001:TOKEN-SC-78912',
+    'GBH-dec-2026-1001',
+    'RSVP:e0000000-0000-0000-0000-000000000001:GBH-dec-2026-1001',
     'used'
 ) ON CONFLICT (id) DO NOTHING;
 
@@ -172,7 +177,7 @@ INSERT INTO guests (
     'attending',
     0,
     0,
-    'TOKEN-MV-33421',
+    'GBH-dec-2026-1002',
     NULL
 ) ON CONFLICT (id) DO NOTHING;
 
@@ -181,8 +186,8 @@ VALUES (
     '60000000-0000-0000-0000-000000000002',
     'e0000000-0000-0000-0000-000000000001',
     '50000000-0000-0000-0000-000000000002',
-    'TK-MV-33421',
-    'RSVP:e0000000-0000-0000-0000-000000000001:TOKEN-MV-33421',
+    'GBH-dec-2026-1002',
+    'RSVP:e0000000-0000-0000-0000-000000000001:GBH-dec-2026-1002',
     'valid'
 ) ON CONFLICT (id) DO NOTHING;
 

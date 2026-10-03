@@ -26,6 +26,9 @@ export const eventSettingsSchema = z.object({
   staff_email: z.string().email("Must be a valid email").optional().nullable().or(z.literal("")),
   close_rsvp_at: z.string().optional().nullable(),
   is_rsvp_closed: z.boolean().default(false),
+  requires_approval: z.boolean().default(false),
+  enable_waitlist: z.boolean().default(true),
+  ticket_tiers_enabled: z.boolean().default(false),
 });
 
 export type EventInput = z.infer<typeof eventSchema>;

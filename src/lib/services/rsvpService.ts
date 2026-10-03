@@ -1,7 +1,7 @@
 import { db } from "./dbProvider";
-import { RsvpResponse, RsvpAnswer, Guest, Ticket, Event } from "@/types/database";
+import { RsvpResponse, RsvpAnswer, Guest, Ticket, Event, GuestStatus, RsvpStatus } from "@/types/database";
 import { RsvpSubmissionInput } from "@/lib/validations/rsvp";
-import { generateTicketCode, generateQrToken, formatDate, formatTime, createGoogleCalendarUrl } from "@/lib/utils";
+import { generateTicketCode, generateQrToken, generateProfessionalId, formatDate, formatTime, createGoogleCalendarUrl } from "@/lib/utils";
 import { notificationService } from "@/lib/notifications/service";
 import QRCode from "qrcode";
 
@@ -10,6 +10,7 @@ export interface RsvpSubmissionResult {
   guest: Guest;
   response: RsvpResponse;
   ticket?: Ticket;
+  plus_one_guests?: { guest: Guest; ticket: Ticket }[];
   message: string;
 }
 
@@ -151,6 +152,31 @@ export class RsvpService {
       throw new Error("The RSVP deadline for this event has passed.");
     }
 
+    // Check capacity and screening policies
+    const stats = await eventService.getEventStats(input.event_id, event);
+    const isCapacityFull =
+      stats.capacityLimit !== null &&
+      stats.capacityRemaining !== null &&
+      stats.capacityRemaining <= 0;
+
+    let effectiveStatus = input.status as GuestStatus;
+    if (input.status === "attending") {
+      if (isCapacityFull && settings?.enable_waitlist) {
+        effectiveStatus = "waitlisted";
+      } else if (settings?.requires_approval) {
+        effectiveStatus = "pending_approval";
+      }
+    }
+
+    // Resolve tier name if tier_id is provided
+    let tierName: string | null = null;
+    if (input.tier_id) {
+      const tier = db.ticketTiers?.find(
+        (t) => t.id === input.tier_id && t.event_id === input.event_id
+      );
+      if (tier) tierName = tier.name;
+    }
+
     // 1. Transactional guest resolution: Find existing or create new
     let guest = db.guests.find(
       (g) =>
@@ -158,23 +184,24 @@ export class RsvpService {
         g.email.toLowerCase() === input.email.toLowerCase().trim()
     );
 
-    const isAttending = input.status === "attending";
+    const isAttending = effectiveStatus === "attending";
 
     if (guest) {
       // Update existing guest record
       guest.first_name = input.first_name;
       guest.last_name = input.last_name;
       guest.phone = input.phone || guest.phone;
-      guest.status = input.status;
+      guest.status = effectiveStatus;
       guest.plus_ones_count = isAttending ? input.plus_ones_count : 0;
       guest.notes = input.notes || guest.notes;
+      if (input.tier_id) guest.tier_id = input.tier_id;
+      if (tierName) guest.tier_name = tierName;
       guest.updated_at = new Date().toISOString();
     } else {
-      // Create new guest
-      const guestId = `g${Date.now().toString(36)}${Math.random().toString(36).substring(2, 6)}`;
-      const qrToken = `TOKEN-${input.first_name.slice(0, 2).toUpperCase()}-${Math.floor(
-        10000 + Math.random() * 90000
-      )}`;
+      // Create new guest with professional semantic identifier
+      const randomNum = Math.floor(1000 + Math.random() * 9000);
+      const qrToken = generateProfessionalId(event.title, event.start_date, randomNum);
+      const guestId = `${qrToken}-GUEST`;
 
       guest = {
         id: guestId,
@@ -183,11 +210,13 @@ export class RsvpService {
         last_name: input.last_name,
         email: input.email.toLowerCase().trim(),
         phone: input.phone || null,
-        status: input.status,
+        status: effectiveStatus,
         plus_ones_allowed: input.plus_ones_count > 0 ? input.plus_ones_count : 0,
         plus_ones_count: isAttending ? input.plus_ones_count : 0,
         qr_token: qrToken,
         notes: input.notes || null,
+        tier_id: input.tier_id || null,
+        tier_name: tierName,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -195,7 +224,7 @@ export class RsvpService {
     }
 
     // 2. Persist RSVP response record
-    const responseId = `r${Date.now().toString(36)}${Math.random().toString(36).substring(2, 6)}`;
+    const responseId = `${guest.qr_token}-RESP`;
     const response: RsvpResponse = {
       id: responseId,
       event_id: input.event_id,
@@ -210,8 +239,9 @@ export class RsvpService {
 
     // 3. Persist Answers to custom questions
     if (input.answers && input.answers.length > 0) {
-      for (const ans of input.answers) {
-        const answerId = `ans${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 5)}`;
+      for (let i = 0; i < input.answers.length; i++) {
+        const ans = input.answers[i];
+        const answerId = `${responseId}-A${i + 1}`;
         const answerRecord: RsvpAnswer = {
           id: answerId,
           response_id: responseId,
@@ -224,16 +254,17 @@ export class RsvpService {
       }
     }
 
-    // 4. Ticket generation for confirmed attendees
+    // 4. Ticket generation for confirmed attendees only
     let ticket: Ticket | undefined;
+    const plusOneGuestsList: { guest: Guest; ticket: Ticket }[] = [];
     if (isAttending) {
       ticket = db.tickets.find((t) => t.guest_id === guest!.id);
       if (!ticket) {
         ticket = {
-          id: `t${Date.now().toString(36)}`,
+          id: `${guest.qr_token}-TK`,
           event_id: input.event_id,
           guest_id: guest.id,
-          ticket_code: generateTicketCode("TK"),
+          ticket_code: guest.qr_token,
           qr_code_data: `RSVP:${input.event_id}:${guest.qr_token}`,
           status: "valid",
           issued_at: new Date().toISOString(),
@@ -241,18 +272,64 @@ export class RsvpService {
         };
         db.tickets.push(ticket);
       }
+
+      // Generate dedicated individual tickets for plus-ones
+      if (input.plus_ones_details && input.plus_ones_details.length > 0) {
+        for (const po of input.plus_ones_details) {
+          const poName = (po as any).name || "";
+          const firstName = (po.first_name || (poName ? poName.split(" ")[0] : "Guest")).trim();
+          const lastName = (po.last_name || (poName ? poName.split(" ").slice(1).join(" ") : "") || "Guest").trim();
+          if (!po.email) continue;
+
+          const poNum = Math.floor(1000 + Math.random() * 9000);
+          const poQrToken = generateProfessionalId(event.title, event.start_date, poNum);
+          const poGuestId = `${poQrToken}-GUEST`;
+
+          const poGuest: Guest = {
+            id: poGuestId,
+            event_id: input.event_id,
+            first_name: firstName,
+            last_name: lastName,
+            email: po.email.trim().toLowerCase(),
+            phone: null,
+            status: "attending",
+            plus_ones_allowed: 0,
+            plus_ones_count: 0,
+            qr_token: poQrToken,
+            notes: `Guest of ${guest.first_name} ${guest.last_name}`,
+            primary_guest_id: guest.id,
+            is_plus_one: true,
+            tier_id: guest.tier_id,
+            tier_name: guest.tier_name,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          db.guests.push(poGuest);
+
+          const poTicket: Ticket = {
+            id: `${poQrToken}-TK`,
+            event_id: input.event_id,
+            guest_id: poGuestId,
+            ticket_code: poQrToken,
+            qr_code_data: `RSVP:${input.event_id}:${poQrToken}`,
+            status: "valid",
+            issued_at: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+          };
+          db.tickets.push(poTicket);
+          plusOneGuestsList.push({ guest: poGuest, ticket: poTicket });
+        }
+      }
     }
 
     // 5. Trigger notification log & confirmation message with rich HTML QR pass
     if (settings?.confirmation_email_enabled) {
-      const subject = isAttending
-        ? `RSVP Confirmed: ${event.title} (Your Digital Pass)`
-        : `RSVP Response Received: ${event.title}`;
-
+      let subject = `RSVP Response Received: ${event.title}`;
+      let bodyText = `Hi ${guest.first_name},\n\nWe have received your response for ${event.title}.`;
       let bodyHtml: string | undefined;
-      let bodyText: string;
 
-      if (isAttending && ticket) {
+      if (effectiveStatus === "attending" && ticket) {
+        subject = `RSVP Confirmed: ${event.title} (Your Digital Pass)`;
         try {
           const qrDataUrl = await QRCode.toDataURL(ticket.qr_code_data, {
             margin: 2,
@@ -263,10 +340,13 @@ export class RsvpService {
         } catch (e) {
           console.warn("Failed to generate QR data URL for email:", e);
         }
-
-        bodyText = `Hi ${guest.first_name},\n\nYou are confirmed for ${event.title}!\nYour digital ticket code is: ${ticket.ticket_code}.\nDate: ${formatDate(event.start_date, event.timezone)} at ${formatTime(event.start_date, event.timezone)}\nVenue: ${event.location_name || event.location_address || 'See invitation'}\n\nPresent your ticket code or QR pass at the entrance gate. See you there!`;
-      } else {
-        bodyText = `Hi ${guest.first_name},\n\nWe have received your decline for ${event.title}. We hope to see you at the next one!`;
+        bodyText = `Hi ${guest.first_name},\n\nYou are confirmed for ${event.title}!\nYour digital ticket code is: ${ticket.ticket_code}.\nDate: ${formatDate(event.start_date, event.timezone)} at ${formatTime(event.start_date, event.timezone)}\nVenue: ${event.location_name || event.location_address || "See invitation"}\n\nPresent your ticket code or QR pass at the entrance gate. See you there!`;
+      } else if (effectiveStatus === "pending_approval") {
+        subject = `Application Received: ${event.title} (Host Screening)`;
+        bodyText = `Hi ${guest.first_name},\n\nThank you for applying to attend ${event.title}. The event host requires attendee screening. We will notify you with your digital pass as soon as your registration is approved.`;
+      } else if (effectiveStatus === "waitlisted") {
+        subject = `Waitlist Confirmation: ${event.title}`;
+        bodyText = `Hi ${guest.first_name},\n\n${event.title} is currently at capacity. You are on the priority waitlist. If a spot opens up, your ticket will be issued automatically.`;
       }
 
       await notificationService.send({
@@ -291,20 +371,262 @@ export class RsvpService {
       });
     }
 
+    let returnMessage = "Thank you! Your RSVP is confirmed and your digital ticket pass has been sent to your email.";
+    if (effectiveStatus === "pending_approval") {
+      returnMessage = "Your registration has been submitted for host review. You will receive your digital pass once approved.";
+    } else if (effectiveStatus === "waitlisted") {
+      returnMessage = "This event is currently at capacity. You have been added to the priority waitlist and will be notified if a spot opens up.";
+    } else if (effectiveStatus === "declined") {
+      returnMessage = "Thank you for letting us know.";
+    }
+
     return {
       success: true,
       guest,
       response,
       ticket,
-      message: isAttending
-        ? "Thank you! Your RSVP is confirmed and your digital ticket pass has been sent to your email."
-        : "Thank you for letting us know.",
+      plus_one_guests: plusOneGuestsList,
+      message: returnMessage,
     };
+  }
+
+  // ====================================================================
+  // Host Approval & Screening Methods
+  // ====================================================================
+
+  public async approveGuest(
+    eventId: string,
+    guestId: string
+  ): Promise<{ guest: Guest; ticket: Ticket } | null> {
+    const guest = db.guests.find((g) => g.event_id === eventId && g.id === guestId);
+    if (!guest) return null;
+
+    guest.status = "attending";
+    guest.updated_at = new Date().toISOString();
+
+    // Issue ticket if not yet issued
+    let ticket = db.tickets.find((t) => t.guest_id === guest.id);
+    if (!ticket) {
+      ticket = {
+        id: `${guest.qr_token}-TK`,
+        event_id: eventId,
+        guest_id: guest.id,
+        ticket_code: guest.qr_token,
+        qr_code_data: `RSVP:${eventId}:${guest.qr_token}`,
+        status: "valid",
+        issued_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+      db.tickets.push(ticket);
+    } else {
+      ticket.status = "valid";
+    }
+
+    // Send pass via email
+    await this.resendConfirmationEmail(guest.email, eventId);
+    return { guest, ticket };
+  }
+
+  public async declineGuest(eventId: string, guestId: string): Promise<boolean> {
+    const guest = db.guests.find((g) => g.event_id === eventId && g.id === guestId);
+    if (!guest) return false;
+
+    guest.status = "declined";
+    guest.updated_at = new Date().toISOString();
+
+    const ticket = db.tickets.find((t) => t.guest_id === guest.id);
+    if (ticket) {
+      ticket.status = "cancelled";
+    }
+
+    // Auto-promote next waitlisted guest if capacity freed up
+    await this.promoteNextWaitlistedGuest(eventId);
+    return true;
+  }
+
+  // ====================================================================
+  // Waitlist Auto-Promotion
+  // ====================================================================
+
+  public async promoteNextWaitlistedGuest(eventId: string): Promise<Guest | null> {
+    const event = db.events.find((e) => e.id === eventId);
+    const settings = db.eventSettings.find((s) => s.event_id === eventId);
+    if (!settings?.enable_waitlist) return null;
+
+    const waitlistedGuests = db.guests
+      .filter((g) => g.event_id === eventId && g.status === "waitlisted")
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+    if (waitlistedGuests.length === 0) return null;
+
+    const candidate = waitlistedGuests[0];
+    if (settings.requires_approval) {
+      candidate.status = "pending_approval";
+      candidate.updated_at = new Date().toISOString();
+      return candidate;
+    }
+
+    // Direct promotion to attending
+    candidate.status = "attending";
+    candidate.updated_at = new Date().toISOString();
+
+    let ticket = db.tickets.find((t) => t.guest_id === candidate.id);
+    if (!ticket) {
+      ticket = {
+        id: `${candidate.qr_token}-TK`,
+        event_id: eventId,
+        guest_id: candidate.id,
+        ticket_code: candidate.qr_token,
+        qr_code_data: `RSVP:${eventId}:${candidate.qr_token}`,
+        status: "valid",
+        issued_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+      db.tickets.push(ticket);
+    } else {
+      ticket.status = "valid";
+    }
+
+    if (event) {
+      await this.resendConfirmationEmail(candidate.email, eventId);
+    }
+
+    return candidate;
+  }
+
+  // ====================================================================
+  // Guest Self-Service Portal (/e/[slug]/rsvp/[token])
+  // ====================================================================
+
+  public async getGuestByToken(
+    eventId: string,
+    token: string
+  ): Promise<{
+    guest: Guest;
+    ticket?: Ticket;
+    plusOnes: (Guest & { ticket?: Ticket })[];
+    plus_ones?: (Guest & { ticket?: Ticket })[];
+    answers: RsvpAnswer[];
+  } | null> {
+    const cleanToken = token.trim();
+    const guest = db.guests.find(
+      (g) =>
+        g.event_id === eventId &&
+        (g.qr_token.toLowerCase() === cleanToken.toLowerCase() ||
+          g.id === cleanToken ||
+          (g.ticket?.ticket_code && g.ticket.ticket_code.toLowerCase() === cleanToken.toLowerCase()))
+    );
+
+    if (!guest) return null;
+
+    const ticket = db.tickets.find((t) => t.guest_id === guest.id);
+    const plusOnes = db.guests
+      .filter((g) => g.primary_guest_id === guest.id)
+      .map((po) => ({
+        ...po,
+        ticket: db.tickets.find((t) => t.guest_id === po.id),
+      }));
+
+    const response = db.responses.find((r) => r.guest_id === guest.id);
+    const answers = response ? db.answers.filter((a) => a.response_id === response.id) : [];
+
+    return {
+      guest,
+      ticket,
+      plusOnes,
+      plus_ones: plusOnes,
+      answers,
+    };
+  }
+
+  public async updateGuestSelfService(
+    eventId: string,
+    token: string,
+    input: {
+      first_name?: string;
+      last_name?: string;
+      phone?: string | null;
+      status?: "attending" | "declined";
+      cancelAttendance?: boolean;
+      notes?: string | null;
+      answers?: { question_id: string; answer_text?: string | null; answer_json?: any }[];
+    }
+  ): Promise<{ success: boolean; guest?: Guest; promotedGuest?: Guest }> {
+    const data = await this.getGuestByToken(eventId, token);
+    if (!data) return { success: false };
+
+    const { guest, ticket } = data;
+    const wasAttending = guest.status === "attending";
+    let promotedGuest: Guest | undefined;
+
+    if (input.first_name) guest.first_name = input.first_name.trim();
+    if (input.last_name) guest.last_name = input.last_name.trim();
+    if (input.phone !== undefined) guest.phone = input.phone;
+    if (input.notes !== undefined) guest.notes = input.notes;
+
+    const targetStatus = input.cancelAttendance ? "declined" : input.status;
+
+    if (targetStatus) {
+      guest.status = targetStatus;
+      if (targetStatus === "declined" && ticket) {
+        ticket.status = "cancelled";
+        // Free up spot -> promote waitlisted attendee
+        if (wasAttending) {
+          const promoted = await this.promoteNextWaitlistedGuest(eventId);
+          if (promoted) {
+            promotedGuest = promoted;
+          }
+        }
+      }
+    }
+
+    guest.updated_at = new Date().toISOString();
+
+    // Update answers if provided
+    if (input.answers && input.answers.length > 0) {
+      let response = db.responses.find((r) => r.guest_id === guest.id);
+      if (!response) {
+        const newResponse: RsvpResponse = {
+          id: `resp${Date.now().toString(36)}`,
+          event_id: eventId,
+          guest_id: guest.id,
+          status: (guest.status === "declined" ? "declined" : "attending") as RsvpStatus,
+          attending_count: 1 + guest.plus_ones_count,
+          submitted_at: new Date().toISOString(),
+          notes: guest.notes || null,
+          created_at: new Date().toISOString(),
+        };
+        db.responses.push(newResponse);
+        response = newResponse;
+      }
+      for (const ans of input.answers) {
+        const existingAns = db.answers.find(
+          (a) => a.response_id === response!.id && a.question_id === ans.question_id
+        );
+        if (existingAns) {
+          existingAns.answer_text = ans.answer_text !== undefined ? ans.answer_text : existingAns.answer_text;
+          existingAns.answer_json = ans.answer_json !== undefined ? ans.answer_json : existingAns.answer_json;
+        } else {
+          db.answers.push({
+            id: `ans${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 5)}`,
+            response_id: response!.id,
+            question_id: ans.question_id,
+            answer_text: ans.answer_text || null,
+            answer_json: ans.answer_json ?? null,
+            created_at: new Date().toISOString(),
+          });
+        }
+      }
+    }
+
+    return { success: true, guest, promotedGuest };
   }
 
   public async resendConfirmationEmail(guestEmail: string, eventId: string): Promise<boolean> {
     const event = db.events.find((e) => e.id === eventId);
-    const guest = db.guests.find((g) => g.event_id === eventId && g.email.toLowerCase() === guestEmail.toLowerCase().trim());
+    const guest = db.guests.find(
+      (g) => g.event_id === eventId && g.email.toLowerCase() === guestEmail.toLowerCase().trim()
+    );
     if (!event || !guest) return false;
 
     const ticket = db.tickets.find((t) => t.guest_id === guest.id);
@@ -323,7 +645,7 @@ export class RsvpService {
 
     const subject = `Your Digital Ticket Pass: ${event.title}`;
     const bodyHtml = ticket ? buildTicketEmailHtml(event, guest, ticket, qrDataUrl) : undefined;
-    const bodyText = `Hi ${guest.first_name},\n\nHere is your ticket pass for ${event.title}. Code: ${ticket?.ticket_code || 'GUEST'}.`;
+    const bodyText = `Hi ${guest.first_name},\n\nHere is your ticket pass for ${event.title}. Code: ${ticket?.ticket_code || "GUEST"}.`;
 
     await notificationService.send({
       eventId: event.id,

@@ -14,19 +14,81 @@ export function generateSlug(text: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-export function generateTicketCode(prefix = "TK"): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let randomPart = "";
-  for (let i = 0; i < 6; i++) {
-    randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+/**
+ * Generates an enterprise-grade professional identifier:
+ * [ALL FIRST LETTERS OF EVENT]-[month]-[year]-[number/tag]
+ * Example:
+ *   "google build hackonth", "december 2026" -> GBH-dec-2026-4821
+ *   "Global AI Summit", "2026-10-15" -> GAS-oct-2026-7291
+ */
+export function generateProfessionalId(
+  eventTitle: string = "Event",
+  dateString?: string | Date | null,
+  suffix?: string | number
+): string {
+  // Extract first letter of each significant word (all uppercase)
+  const cleanTitle = eventTitle.trim();
+  const words = cleanTitle
+    .replace(/[^\w\s]/g, "")
+    .split(/\s+/)
+    .filter(
+      (w) =>
+        w.length > 0 &&
+        !/^\d+$/.test(w) &&
+        !["and", "or", "the", "of", "in", "at", "for", "a", "an"].includes(w.toLowerCase())
+    );
+
+  let acronym = words.map((w) => w[0].toUpperCase()).join("");
+  if (!acronym || acronym.length < 2) {
+    const lettersOnly = cleanTitle.replace(/[^a-zA-Z]/g, "").toUpperCase();
+    acronym = lettersOnly.slice(0, 3) || "EVT";
   }
-  return `${prefix}-${randomPart}`;
+
+  // Extract lowercase 3-letter month and 4-digit year
+  const d = dateString ? new Date(dateString) : new Date();
+  const validDate = isNaN(d.getTime()) ? new Date() : d;
+  const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+  const mon = months[validDate.getMonth()];
+  const year = validDate.getFullYear();
+
+  // Suffix number or entity tag
+  let tag = "";
+  if (typeof suffix === "number") {
+    tag = suffix.toString();
+  } else if (typeof suffix === "string" && suffix.trim().length > 0) {
+    tag = suffix.trim();
+  } else {
+    tag = Math.floor(1000 + Math.random() * 9000).toString();
+  }
+
+  return `${acronym}-${mon}-${year}-${tag}`;
 }
 
-export function generateQrToken(): string {
-  const chars = "abcdef0123456789";
-  let token = "tok_";
-  for (let i = 0; i < 20; i++) {
+export function generateTicketCode(
+  eventTitleOrPrefix: string = "TK",
+  dateString?: string | Date | null
+): string {
+  if (eventTitleOrPrefix.length > 4) {
+    return generateProfessionalId(eventTitleOrPrefix, dateString);
+  }
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let randomPart = "";
+  for (let i = 0; i < 5; i++) {
+    randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return `${eventTitleOrPrefix}-${randomPart}`;
+}
+
+export function generateQrToken(
+  eventTitle?: string,
+  dateString?: string | Date | null
+): string {
+  if (eventTitle) {
+    return generateProfessionalId(eventTitle, dateString);
+  }
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let token = "TOKEN-";
+  for (let i = 0; i < 8; i++) {
     token += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return token;

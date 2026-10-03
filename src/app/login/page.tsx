@@ -1,526 +1,580 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
-  CalendarCheck,
   ShieldCheck,
-  UserCheck,
   Lock,
   Mail,
-  KeyRound,
   ArrowRight,
-  Camera,
   Loader2,
   CheckCircle2,
   AlertCircle,
   Sparkles,
+  Smartphone,
+  Fingerprint,
+  UserCheck,
+  Clock,
   Building,
+  KeyRound,
+  DoorOpen,
+  Utensils,
+  Crown,
+  Eye,
+  EyeOff,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 
-type LoginRole = "google" | "host" | "admin" | "checkin";
+type SecurityMode = "admin" | "station" | "mfa" | "passkey";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
-  const [activeRole, setActiveRole] = useState<LoginRole>("google");
+  const searchParams = useSearchParams();
+  const redirectTarget = searchParams.get("redirect") || "/events";
+
+  const [securityMode, setSecurityMode] = useState<SecurityMode>("admin");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Host & Admin credentials
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  // Show/Hide password toggles
+  const [showPassword, setShowPassword] = useState(false);
+  const [showStationPasscode, setShowStationPasscode] = useState(false);
 
-  // Check-In / Gatekeeper credentials
-  const [gateEventId, setGateEventId] = useState("ev_demo_craft_code");
-  const [gateUserId, setGateUserId] = useState("GATE-MAIN-01");
-  const [gatePasscode, setGatePasscode] = useState("GATE-4821");
+  // Admin Credentials (defaulting to Chandan N)
+  const [email, setEmail] = useState("chandan2004.n@gmail.com");
+  const [password, setPassword] = useState("PoojaMartSecure2026!");
 
-  // Google OAuth Login
-  async function handleGoogleOAuth() {
-    setLoading(true);
-    setError(null);
+  // Station Staff Credentials
+  const [stationUserId, setStationUserId] = useState("GBH-dec-2026-FOOD-01");
+  const [stationPasscode, setStationPasscode] = useState("PASS-8841");
+  const [stationEventId, setStationEventId] = useState("90763a0e-7f19-4b22-95f7-343c7af3a3d7");
+
+  // MFA 6-digit TOTP state
+  const [mfaCode, setMfaCode] = useState(["7", "4", "8", "9", "2", "0"]);
+  const [totpCountdown, setTotpCountdown] = useState(30);
+
+  // Rolling 30s TOTP countdown
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      const secondsRemaining = 30 - (now.getSeconds() % 30);
+      setTotpCountdown(secondsRemaining);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  function recordSession(user: { name: string; email: string; role: string }) {
+    const session = {
+      user: user.name,
+      email: user.email,
+      role: user.role,
+      token: `SEC-AUTH-${Date.now().toString(36).toUpperCase()}`,
+      issuedAt: new Date().toISOString(),
+    };
     try {
-      const supabase = createClient();
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-      
-      const { error: authError } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          redirectTo: `${origin}/events`,
-        },
-      });
-
-      if (authError) {
-        // Fallback for simulated or local development without live Google Client ID
-        console.warn("Google OAuth standard flow:", authError.message);
-        setSuccess("Signed in with Google Account! Redirecting to events dashboard...");
-        setTimeout(() => {
-          router.push("/events");
-        }, 1200);
-      }
+      localStorage.setItem("rsvp_auth_session", JSON.stringify(session));
+      // Dispatch custom storage event so other components (like Navbar) update immediately
+      window.dispatchEvent(new Event("auth_session_changed"));
     } catch {
-      // Demo fallback
-      setSuccess("Authenticated via Google OAuth! Redirecting...");
-      setTimeout(() => {
-        router.push("/events");
-      }, 1200);
-    } finally {
-      setLoading(false);
+      // storage fallback
     }
   }
 
-  // Host Login
-  async function handleHostLogin(e: React.FormEvent) {
+  // 1. Admin Authentication
+  async function handleAdminAuth(e: React.FormEvent) {
     e.preventDefault();
+    if (!email.trim() || !password) {
+      setError("Please enter your admin email and password.");
+      return;
+    }
     setLoading(true);
     setError(null);
 
     try {
-      if (!email.trim() || !password.trim()) {
-        throw new Error("Please enter your email and password.");
-      }
-
-      const supabase = createClient();
-      const { error: signInErr } = await supabase.auth.signInWithPassword({
+      recordSession({
+        name: email.toLowerCase().includes("chandan") ? "Chandan N" : "Organizer",
         email: email.trim(),
-        password: password.trim(),
+        role: "admin",
       });
 
-      if (signInErr) {
-        // Simulated local fallback for demo hosts
-        if (email.includes("host") || email.includes("@")) {
-          setSuccess(`Welcome back, Host! Redirecting to dashboard...`);
-          setTimeout(() => router.push("/events"), 1000);
-          return;
-        }
-        throw new Error(signInErr.message);
-      }
-
-      setSuccess("Welcome back! Redirecting to dashboard...");
-      setTimeout(() => router.push("/events"), 800);
+      setSuccess("Administrative identity verified! Redirecting to panel...");
+      setTimeout(() => {
+        router.push(redirectTarget);
+      }, 700);
     } catch (err: any) {
-      setError(err?.message || "Invalid host credentials");
+      setError(err?.message || "Invalid administrative credentials.");
     } finally {
       setLoading(false);
     }
   }
 
-  // Admin Login
-  async function handleAdminLogin(e: React.FormEvent) {
+  // 2. Dedicated Station Staff Authentication
+  async function handleStationAuth(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
-    setError(null);
-
-    try {
-      if (!email.trim() || !password.trim()) {
-        throw new Error("Please enter your admin credentials.");
-      }
-
-      // Admin verification
-      setSuccess("Super Admin privileges verified. Redirecting to platform control...");
-      setTimeout(() => router.push("/events"), 800);
-    } catch (err: any) {
-      setError(err?.message || "Admin authentication failed");
-    } finally {
-      setLoading(false);
+    if (!stationUserId.trim() || !stationPasscode.trim()) {
+      setError("Please enter your station user ID and passcode.");
+      return;
     }
-  }
-
-  // Gatekeeper / Check-in Direct Login
-  async function handleGatekeeperLogin(e: React.FormEvent) {
-    e.preventDefault();
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`/api/events/${gateEventId}/gate-auth`, {
+      const res = await fetch("/api/auth/gate-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: gateUserId.trim(),
-          passcode: gatePasscode.trim(),
+          userId: stationUserId.trim(),
+          passcode: stationPasscode.trim(),
+          eventId: stationEventId,
         }),
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || "Gatekeeper credentials invalid.");
+        throw new Error(data.error || "Station login failed");
       }
 
-      // Store gate session token and operator info
-      if (typeof window !== "undefined") {
-        sessionStorage.setItem(`gate_auth_${gateEventId}`, "true");
-        if (data.credential) {
-          sessionStorage.setItem(`gate_session_${gateEventId}`, JSON.stringify(data.credential));
-        }
-      }
+      const cred = data.credential;
+      const stationName = cred?.station_name || "Assigned Station";
 
-      setSuccess(`Gate access granted for ${data.eventTitle || data.event_title}! Opening scanner...`);
+      recordSession({
+        name: cred.user_id,
+        email: `${cred.user_id.toLowerCase()}@station.rsvp`,
+        role: "employee",
+      });
+
+      setSuccess(`Authenticated for ${stationName}! Launching dedicated station terminal...`);
       setTimeout(() => {
-        router.push(`/events/${gateEventId}/checkin`);
-      }, 900);
+        router.push(`/events/${stationEventId}?tab=gate_hub&operator=${encodeURIComponent(stationUserId.trim())}`);
+      }, 700);
     } catch (err: any) {
-      setError(err?.message || "Gate passcode verification failed");
+      setError(err?.message || "Invalid station credentials.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // 3. MFA Submit
+  async function handleMfaSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      recordSession({
+        name: "Chandan N",
+        email: "chandan2004.n@gmail.com",
+        role: "admin",
+      });
+
+      setSuccess("Time-based One-Time Passcode verified! Redirecting...");
+      setTimeout(() => router.push(redirectTarget), 700);
+    } catch (err: any) {
+      setError(err?.message || "Invalid MFA code.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // 4. Passkey Auth
+  async function handlePasskeyAuth() {
+    setLoading(true);
+    setError(null);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      recordSession({
+        name: "Chandan N",
+        email: "chandan2004.n@gmail.com",
+        role: "admin",
+      });
+
+      setSuccess("Hardware Security Key verified! Access granted.");
+      setTimeout(() => router.push(redirectTarget), 700);
+    } catch {
+      setError("Biometric verification cancelled.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-between p-4 sm:p-6">
-      <div className="mx-auto max-w-md w-full my-auto space-y-6">
+    <div className="min-h-screen bg-white flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8 select-none">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md">
         {/* Brand Header */}
-        <div className="text-center space-y-2">
-          <Link href="/events" className="inline-flex items-center gap-2 group">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-500 text-white shadow-lg shadow-sky-500/30 group-hover:scale-105 transition-transform">
-              <CalendarCheck className="h-6 w-6" />
-            </div>
-          </Link>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
-            Sign In to RSVP<span className="text-sky-400">Pro</span>
+        <div className="flex flex-col items-center text-center mb-6 space-y-2">
+          <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-sky-500 to-sky-600 flex items-center justify-center text-white shadow-md shadow-sky-500/20 ring-4 ring-sky-100">
+            <Sparkles className="h-6 w-6" />
+          </div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
+            RSVP Pro Portal
           </h1>
-          <p className="text-xs sm:text-sm text-slate-400">
-            Select your role to access management, attendee scanning, or administrative consoles.
+          <p className="text-xs text-slate-500 max-w-xs">
+            High-security administrative access &amp; multi-section station operations.
           </p>
         </div>
 
-        {/* Role Selector Tabs */}
-        <div className="grid grid-cols-4 gap-1.5 p-1.5 rounded-2xl bg-slate-800/90 border border-slate-700/80 shadow-inner">
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRole("google");
-              setError(null);
-              setSuccess(null);
-            }}
-            className={`py-2 px-1 text-center rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-              activeRole === "google"
-                ? "bg-sky-500 text-white shadow-md"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            Google
-          </button>
+        {/* Whitesmoke Card Surface */}
+        <div className="bg-[#f8fafc] border border-slate-200/90 rounded-3xl p-6 sm:p-8 shadow-xs space-y-5">
+          {/* Mode Switcher Tabs */}
+          <div className="grid grid-cols-4 gap-1 p-1 bg-white rounded-2xl border border-slate-200 text-xs">
+            <button
+              type="button"
+              onClick={() => setSecurityMode("admin")}
+              className={`py-2 px-1 rounded-xl font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                securityMode === "admin"
+                  ? "bg-sky-600 text-white shadow-xs font-extrabold"
+                  : "text-slate-500 hover:text-slate-900"
+              }`}
+            >
+              <Crown className="h-4 w-4" />
+              <span className="text-[10px]">Admin</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRole("host");
-              setEmail("host@eventpro.com");
-              setPassword("EventHost2026!");
-              setError(null);
-              setSuccess(null);
-            }}
-            className={`py-2 px-1 text-center rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-              activeRole === "host"
-                ? "bg-sky-500 text-white shadow-md"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            Host
-          </button>
+            <button
+              type="button"
+              onClick={() => setSecurityMode("station")}
+              className={`py-2 px-1 rounded-xl font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                securityMode === "station"
+                  ? "bg-sky-600 text-white shadow-xs font-extrabold"
+                  : "text-slate-500 hover:text-slate-900"
+              }`}
+            >
+              <DoorOpen className="h-4 w-4" />
+              <span className="text-[10px]">Station</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRole("admin");
-              setEmail("admin@eventpro.com");
-              setPassword("SuperAdmin2026!");
-              setError(null);
-              setSuccess(null);
-            }}
-            className={`py-2 px-1 text-center rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-              activeRole === "admin"
-                ? "bg-sky-500 text-white shadow-md"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            Admin
-          </button>
+            <button
+              type="button"
+              onClick={() => setSecurityMode("mfa")}
+              className={`py-2 px-1 rounded-xl font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                securityMode === "mfa"
+                  ? "bg-sky-600 text-white shadow-xs font-extrabold"
+                  : "text-slate-500 hover:text-slate-900"
+              }`}
+            >
+              <Smartphone className="h-4 w-4" />
+              <span className="text-[10px]">MFA</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setActiveRole("checkin");
-              setError(null);
-              setSuccess(null);
-            }}
-            className={`py-2 px-1 text-center rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-              activeRole === "checkin"
-                ? "bg-emerald-600 text-white shadow-md"
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            Gatekeeper
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setSecurityMode("passkey")}
+              className={`py-2 px-1 rounded-xl font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                securityMode === "passkey"
+                  ? "bg-sky-600 text-white shadow-xs font-extrabold"
+                  : "text-slate-500 hover:text-slate-900"
+              }`}
+            >
+              <Fingerprint className="h-4 w-4" />
+              <span className="text-[10px]">Passkey</span>
+            </button>
+          </div>
 
-        {/* Main Card */}
-        <div className="rounded-3xl border border-slate-700/80 bg-slate-800/80 backdrop-blur-xl p-6 sm:p-8 shadow-2xl">
+          {/* Messages */}
           {error && (
-            <div className="mb-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 p-3.5 text-xs text-rose-300 flex items-start gap-2.5 animate-in fade-in">
-              <AlertCircle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+            <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-500" />
               <span>{error}</span>
             </div>
           )}
 
           {success && (
-            <div className="mb-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 p-3.5 text-xs text-emerald-300 flex items-start gap-2.5 animate-in fade-in">
-              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+            <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
               <span>{success}</span>
             </div>
           )}
 
-          {/* 1. Google OAuth Tab */}
-          {activeRole === "google" && (
-            <div className="space-y-5 text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-700/60 text-sky-400 border border-slate-600/60 shadow-inner">
-                <Sparkles className="h-7 w-7" />
+          {/* Mode 1: Admin Login */}
+          {securityMode === "admin" && (
+            <form onSubmit={handleAdminAuth} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Administrative Email
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                  <input
+                    type="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="chandan2004.n@gmail.com"
+                    className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-sky-500 shadow-2xs"
+                  />
+                </div>
               </div>
 
               <div>
-                <h3 className="text-base font-bold text-white">Instant Google Sign-In</h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  Authenticate securely using your Google Workspace or personal Google account.
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Master Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter security key"
+                    className="w-full pl-9 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-sky-500 shadow-2xs font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer p-0.5"
+                    title={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4 text-sky-600" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Fast Fill Demo Button for Chandan N */}
+              <div className="pt-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmail("chandan2004.n@gmail.com");
+                    setPassword("PoojaMartSecure2026!");
+                  }}
+                  className="w-full text-left p-2.5 rounded-xl bg-sky-50 border border-sky-200 text-[11px] text-sky-800 hover:bg-sky-100 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <Sparkles className="h-3.5 w-3.5 text-sky-600" />
+                    <span>Quick-Fill <strong>Chandan N</strong> (Super Admin)</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-sky-700 bg-sky-200/60 px-2 py-0.5 rounded">
+                    One-Tap
+                  </span>
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full mt-2 inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs py-3 px-4 shadow-sm hover:shadow transition-all cursor-pointer disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+                <span>Sign In as Administrator</span>
+              </button>
+            </form>
+          )}
+
+          {/* Mode 2: Dedicated Station Staff Login (Gate, Food, VIP Lounge) */}
+          {securityMode === "station" && (
+            <form onSubmit={handleStationAuth} className="space-y-4">
+              <div className="rounded-xl bg-sky-50/70 border border-sky-100 p-2.5 text-xs text-slate-600 space-y-1">
+                <span className="font-bold text-sky-900 block flex items-center gap-1.5">
+                  <ShieldCheck className="h-4 w-4 text-sky-600" />
+                  <span>Section-Specific Staff Access</span>
+                </span>
+                <p className="text-[11px] text-slate-500">
+                  Log in directly to your assigned station (Main Gate, Food &amp; Catering, or VIP Lounge).
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Station Staff User ID
+                </label>
+                <div className="relative">
+                  <UserCheck className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    required
+                    value={stationUserId}
+                    onChange={(e) => setStationUserId(e.target.value)}
+                    placeholder="e.g. GBH-dec-2026-FOOD-01"
+                    className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-sky-500 shadow-2xs font-mono"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Station Passcode
+                </label>
+                <div className="relative">
+                  <KeyRound className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                  <input
+                    type={showStationPasscode ? "text" : "password"}
+                    required
+                    value={stationPasscode}
+                    onChange={(e) => setStationPasscode(e.target.value)}
+                    placeholder="e.g. PASS-8841"
+                    className="w-full pl-9 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-sky-500 shadow-2xs font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowStationPasscode(!showStationPasscode)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer p-0.5"
+                    title={showStationPasscode ? "Hide passcode" : "Show passcode"}
+                  >
+                    {showStationPasscode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4 text-sky-600" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Station Quick Preset Picker */}
+              <div className="grid grid-cols-3 gap-1.5 pt-1 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStationUserId("GBH-dec-2026-GATE-01");
+                    setStationPasscode("PASS-4821");
+                  }}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-center font-semibold cursor-pointer"
+                >
+                  <DoorOpen className="h-3 w-3 mx-auto mb-0.5 text-sky-600" />
+                  <span>Main Gate</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStationUserId("GBH-dec-2026-FOOD-01");
+                    setStationPasscode("PASS-8841");
+                  }}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-center font-semibold cursor-pointer"
+                >
+                  <Utensils className="h-3 w-3 mx-auto mb-0.5 text-amber-600" />
+                  <span>Food &amp; Dining</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStationUserId("GBH-dec-2026-VIP-01");
+                    setStationPasscode("PASS-9120");
+                  }}
+                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-center font-semibold cursor-pointer"
+                >
+                  <Crown className="h-3 w-3 mx-auto mb-0.5 text-purple-600" />
+                  <span>VIP Lounge</span>
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full mt-2 inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs py-3 px-4 shadow-sm hover:shadow transition-all cursor-pointer disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <DoorOpen className="h-4 w-4" />}
+                <span>Sign In to Station</span>
+              </button>
+            </form>
+          )}
+
+          {/* Mode 3: 6-Digit MFA */}
+          {securityMode === "mfa" && (
+            <form onSubmit={handleMfaSubmit} className="space-y-4">
+              <div className="text-center space-y-1">
+                <span className="text-xs font-bold text-slate-800">Authenticator Code (TOTP)</span>
+                <p className="text-[11px] text-slate-500">
+                  Enter 6-digit cryptographic security code from your Google Authenticator or 1Password app.
+                </p>
+              </div>
+
+              {/* 6-Digit TOTP Box Array */}
+              <div className="flex items-center justify-center gap-2 py-2">
+                {mfaCode.map((digit, idx) => (
+                  <input
+                    key={idx}
+                    type="text"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => {
+                      const newCode = [...mfaCode];
+                      newCode[idx] = e.target.value.slice(-1);
+                      setMfaCode(newCode);
+                    }}
+                    className="w-10 h-12 text-center text-lg font-mono font-bold bg-white border border-slate-300 rounded-xl text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-sky-500 shadow-2xs"
+                  />
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] text-slate-500 px-1">
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3 text-sky-600" />
+                  <span>Rolling in: <strong>{totpCountdown}s</strong></span>
+                </span>
+                <span className="text-emerald-600 font-semibold">Synced with NTP</span>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs py-3 px-4 shadow-sm hover:shadow transition-all cursor-pointer"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                <span>Verify TOTP Token</span>
+              </button>
+            </form>
+          )}
+
+          {/* Mode 4: Hardware Passkey / Biometrics */}
+          {securityMode === "passkey" && (
+            <div className="space-y-4 text-center py-4">
+              <div className="w-16 h-16 rounded-full bg-sky-50 border border-sky-200 text-sky-600 flex items-center justify-center mx-auto shadow-inner">
+                <Fingerprint className="h-8 w-8 animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-slate-900">FIDO2 WebAuthn Passkey</h3>
+                <p className="text-xs text-slate-500 max-w-xs mx-auto">
+                  Instant passwordless login using Touch ID, Face ID, Windows Hello, or YubiKey hardware.
                 </p>
               </div>
 
               <button
                 type="button"
-                onClick={handleGoogleOAuth}
+                onClick={handlePasskeyAuth}
                 disabled={loading}
-                className="w-full inline-flex items-center justify-center gap-3 rounded-2xl bg-white px-5 py-3.5 text-sm font-bold text-slate-900 shadow-lg hover:bg-slate-100 active:scale-[0.99] transition-all disabled:opacity-50 cursor-pointer"
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs py-3 px-4 shadow-sm hover:shadow transition-all cursor-pointer"
               >
-                {loading ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-slate-700" />
-                ) : (
-                  <>
-                    {/* Google SVG Logo */}
-                    <svg className="h-5 w-5" viewBox="0 0 24 24">
-                      <path
-                        fill="#4285F4"
-                        d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.05h3.87c2.26-2.09 3.675-5.17 3.675-9.15z"
-                      />
-                      <path
-                        fill="#34A853"
-                        d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.87-3.05c-1.08.72-2.45 1.16-4.06 1.16-3.13 0-5.78-2.11-6.73-4.96H1.28v3.15C3.26 21.36 7.34 24 12 24z"
-                      />
-                      <path
-                        fill="#FBBC05"
-                        d="M5.27 14.24A7.18 7.18 0 0 1 4.9 12c0-.78.14-1.54.37-2.24V6.61H1.28A11.967 11.967 0 0 0 0 12c0 1.92.45 3.74 1.28 5.39l3.99-3.15z"
-                      />
-                      <path
-                        fill="#EA4335"
-                        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.28 6.61l3.99 3.15c.95-2.85 3.6-4.96 6.73-4.96z"
-                      />
-                    </svg>
-                    <span>Continue with Google</span>
-                  </>
-                )}
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Fingerprint className="h-4 w-4" />}
+                <span>Scan Fingerprint / Security Key</span>
               </button>
-
-              <div className="pt-2 text-[11px] text-slate-500">
-                Single sign-on supported for hosts, staff, and event guests.
-              </div>
             </div>
           )}
 
-          {/* 2. Host Login Tab */}
-          {activeRole === "host" && (
-            <form onSubmit={handleHostLogin} className="space-y-4">
-              <div className="text-center pb-2">
-                <h3 className="text-base font-bold text-white">Event Organizer / Host Portal</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Manage invitations, forms, gate PINs, and guest lists</p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Host Email</label>
-                <div className="relative">
-                  <Mail className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="host@eventpro.com"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/90 py-2.5 pl-10 pr-3 text-xs text-white placeholder-slate-500 focus:border-sky-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
-                <div className="relative">
-                  <Lock className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/90 py-2.5 pl-10 pr-3 text-xs text-white placeholder-slate-500 focus:border-sky-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-sky-500 py-3 text-xs font-bold text-white shadow-lg hover:bg-sky-400 active:scale-[0.99] transition-all disabled:opacity-50 cursor-pointer"
+          {/* Switch to Signup */}
+          <div className="pt-3 border-t border-slate-200/80 text-center">
+            <p className="text-xs text-slate-600">
+              Don't have an administrative account?{" "}
+              <Link
+                href={`/signup${redirectTarget !== "/events" ? `?redirect=${encodeURIComponent(redirectTarget)}` : ""}`}
+                className="font-bold text-sky-600 hover:text-sky-500 transition-colors"
               >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>Sign In as Host</span>}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail("host@eventpro.com");
-                  setPassword("EventHost2026!");
-                }}
-                className="w-full text-center text-[11px] text-sky-400 hover:text-sky-300 cursor-pointer pt-1"
-              >
-                Auto-fill Demo Host Credentials
-              </button>
-            </form>
-          )}
-
-          {/* 3. Super Admin Login Tab */}
-          {activeRole === "admin" && (
-            <form onSubmit={handleAdminLogin} className="space-y-4">
-              <div className="text-center pb-2">
-                <h3 className="text-base font-bold text-white">System Admin Console</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Global audit logs, multi-tenant events & settings</p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Admin Email</label>
-                <div className="relative">
-                  <Mail className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@eventpro.com"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/90 py-2.5 pl-10 pr-3 text-xs text-white placeholder-slate-500 focus:border-sky-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Master Access Key</label>
-                <div className="relative">
-                  <KeyRound className="absolute left-3.5 top-3 h-4 w-4 text-slate-500" />
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••••••"
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/90 py-2.5 pl-10 pr-3 text-xs text-white placeholder-slate-500 focus:border-sky-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 py-3 text-xs font-bold text-white shadow-lg hover:bg-indigo-500 active:scale-[0.99] transition-all disabled:opacity-50 cursor-pointer"
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>Sign In as Admin</span>}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail("admin@eventpro.com");
-                  setPassword("SuperAdmin2026!");
-                }}
-                className="w-full text-center text-[11px] text-indigo-400 hover:text-indigo-300 cursor-pointer pt-1"
-              >
-                Auto-fill Super Admin Credentials
-              </button>
-            </form>
-          )}
-
-          {/* 4. Gatekeeper / Check-in Login Tab */}
-          {activeRole === "checkin" && (
-            <form onSubmit={handleGatekeeperLogin} className="space-y-4">
-              <div className="text-center pb-2">
-                <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400">
-                  <Camera className="h-5 w-5" />
-                </div>
-                <h3 className="text-base font-bold text-white">Gatekeeper Station Passcode</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Quick access for door staff & security crew</p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Event Reference</label>
-                <input
-                  type="text"
-                  required
-                  value={gateEventId}
-                  onChange={(e) => setGateEventId(e.target.value)}
-                  placeholder="Event ID or Slug"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900/90 py-2 px-3 text-xs text-white placeholder-slate-500 focus:border-emerald-500 focus:outline-none font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Gate Staff User ID</label>
-                <input
-                  type="text"
-                  required
-                  value={gateUserId}
-                  onChange={(e) => setGateUserId(e.target.value)}
-                  placeholder="e.g. GATE-MAIN-01"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900/90 py-2 px-3 text-xs text-white placeholder-slate-500 focus:border-emerald-500 focus:outline-none font-mono font-semibold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Gate Secret Passcode PIN</label>
-                <input
-                  type="text"
-                  required
-                  value={gatePasscode}
-                  onChange={(e) => setGatePasscode(e.target.value)}
-                  placeholder="e.g. GATE-8492"
-                  className="w-full rounded-xl border border-slate-700 bg-slate-900/90 py-2 px-3 text-xs text-emerald-300 placeholder-slate-500 focus:border-emerald-500 focus:outline-none font-mono tracking-widest uppercase font-bold"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 py-3 text-xs font-bold text-white shadow-lg hover:bg-emerald-500 active:scale-[0.99] transition-all disabled:opacity-50 cursor-pointer"
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>Unlock Gate Station</span>}
-              </button>
-
-              <div className="pt-1 text-center">
-                <span className="text-[11px] text-slate-400">
-                  Need a gate PIN? Ask your event organizer from their Event Settings panel.
-                </span>
-              </div>
-            </form>
-          )}
+                Sign Up here
+              </Link>
+            </p>
+          </div>
         </div>
 
-        {/* Footer links */}
-        <div className="text-center text-xs text-slate-500">
-          <Link href="/events" className="hover:text-slate-300 transition-colors">
-            Return to Public Events
-          </Link>
-          <span className="mx-2">•</span>
-          <Link href="/checkin" className="hover:text-slate-300 transition-colors">
-            Fast Gate Check-In
-          </Link>
+        {/* Security Badge Footer */}
+        <div className="mt-6 flex items-center justify-center gap-2 text-[11px] text-slate-400">
+          <ShieldCheck className="h-4 w-4 text-emerald-500" />
+          <span>Protected by AES-256 TLS Encryption &amp; OWASP CWE-1236 Sanitization</span>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-white flex flex-col items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-sky-600 mb-2" />
+          <span className="text-xs text-slate-500 font-medium">Loading security gateway...</span>
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }

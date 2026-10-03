@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkinService } from "@/lib/services/checkinService";
 import { checkinRequestSchema } from "@/lib/validations/checkin";
+import { liveSyncBus } from "@/lib/services/liveSync";
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,6 +20,14 @@ export async function POST(req: NextRequest) {
     if (!result.success) {
       return NextResponse.json(result, { status: 400 });
     }
+
+    liveSyncBus.emit(validated.event_id, "checkin", {
+      guestName: `${result.guest?.first_name} ${result.guest?.last_name}`,
+      ticketCode: result.ticket?.ticket_code,
+      operatorId: validated.gate_user_id,
+      checkpoint: validated.checkpoint || "Main Gate",
+      checkinTime: result.checkin?.checkin_time,
+    });
 
     return NextResponse.json(result, { status: 200 });
   } catch (error: any) {

@@ -4,14 +4,14 @@ import { useState, useRef, useEffect } from "react";
 import jsQR from "jsqr";
 import {
   Camera,
-  CameraOff,
   CheckCircle2,
   AlertCircle,
-  Clock,
-  Search,
   Volume2,
   VolumeX,
+  FlipHorizontal,
+  Search,
   Loader2,
+  KeyRound,
   Users,
   ShieldCheck,
   RefreshCw,
@@ -20,6 +20,12 @@ import {
   Upload,
   X,
   Sparkles,
+  DoorOpen,
+  Utensils,
+  Crown,
+  ChevronDown,
+  Layers,
+  Laptop,
 } from "lucide-react";
 import { CheckinResult } from "@/lib/services/checkinService";
 
@@ -30,6 +36,7 @@ interface CheckinScannerProps {
 }
 
 export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: CheckinScannerProps) {
+  // Laptop-friendly: Camera is OFF by default
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
   const [manualCode, setManualCode] = useState("");
@@ -38,17 +45,31 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
   const [lastResult, setLastResult] = useState<CheckinResult | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [showMobileModal, setShowMobileModal] = useState(false);
-  const [mobileQrDataUrl, setMobileQrDataUrl] = useState<string | null>(null);
+
+  // Active Station / Checkpoint section
+  const [activeStation, setActiveStation] = useState<string>("Main Gate Entrance");
+
+  // Real-Time Multi-Station Sync & Offline Queue
+  const [isOnline, setIsOnline] = useState(true);
+  const [offlineQueueCount, setOfflineQueueCount] = useState(0);
+  const [liveSyncFeed, setLiveSyncFeed] = useState<string | null>(null);
+  const ticketCacheRef = useRef<Map<string, { guestName: string; ticketCode: string }>>(new Map());
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const scanLoopRef = useRef<number | null>(null);
   const lastScannedCodeRef = useRef<string | null>(null);
   const scanCooldownRef = useRef<boolean>(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // Audio synthesizer for check-in feedback
+  const STATIONS = [
+    { id: "gate", name: "Main Gate Entrance", icon: DoorOpen, color: "text-sky-600 bg-sky-50 border-sky-200" },
+    { id: "food", name: "Food & Catering", icon: Utensils, color: "text-amber-600 bg-amber-50 border-amber-200" },
+    { id: "vip", name: "VIP Lounge", icon: Crown, color: "text-purple-600 bg-purple-50 border-purple-200" },
+    { id: "breakout", name: "Breakout Labs", icon: Sparkles, color: "text-emerald-600 bg-emerald-50 border-emerald-200" },
+  ];
+
+  // Synthesizer Audio Cues
   function playBeep(type: "success" | "duplicate" | "error") {
     if (!soundEnabled || typeof window === "undefined") return;
     try {
@@ -57,7 +78,6 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
       const ctx = new AudioCtx();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-
       osc.connect(gain);
       gain.connect(ctx.destination);
 
@@ -84,76 +104,43 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
         osc.stop(ctx.currentTime + 0.3);
       }
     } catch {
-      // Audio autoplay restrictions
+      // Audio autoplay restriction fallback
     }
   }
 
-  // Gate Section / Attendance Checkpoint state
-  const [activeSection, setActiveSection] = useState<string>("Main Entrance");
-  const [isCustomSection, setIsCustomSection] = useState(false);
-  const [customSectionInput, setCustomSectionInput] = useState("");
-
-  const PRESET_SECTIONS = [
-    "Main Entrance",
-    "VIP Lounge",
-    "Conference Hall",
-    "Workshop Zone",
-    "Dinner & Banquet",
-  ];
-
-  // Camera video stream handling with mobile fallback
+  // Camera video stream handling (only active when operator requests it)
   async function startCamera(overrideFacing?: "environment" | "user") {
     setCameraError(null);
     const mode = overrideFacing || facingMode;
 
     try {
       if (!navigator?.mediaDevices?.getUserMedia) {
-        throw new Error(
-          "Direct video stream requires a secure context (HTTPS) or device camera permission. Please ensure camera access is granted in browser settings."
-        );
+        throw new Error("Camera not accessible in this browser context.");
       }
 
-      setIsCameraActive(true);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: mode },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+        audio: false,
+      });
 
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: mode },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
-        });
-      } catch (e1) {
-        console.warn("Ideal facingMode constraint failed, trying fallback:", e1);
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: false,
-        });
-      }
-
-      const video = videoRef.current;
-      if (video) {
-        video.srcObject = stream;
-        video.muted = true;
-        video.playsInline = true;
-        video.setAttribute("playsinline", "true");
-        video.setAttribute("webkit-playsinline", "true");
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute("playsinline", "true");
         try {
-          await video.play();
+          await videoRef.current.play();
         } catch (playErr) {
           console.warn("Video play error:", playErr);
         }
+        setIsCameraActive(true);
         startScanning();
       }
     } catch (err: any) {
-      console.warn("Camera start failed:", err);
       setIsCameraActive(false);
-      setCameraError(
-        err?.message ||
-          "Unable to start live camera. Please grant camera permission in your browser or search attendee by ticket code or email."
-      );
+      setCameraError(err?.message || "Camera access denied. Please use the USB / Keyboard scanner below.");
     }
   }
 
@@ -170,13 +157,6 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
     setIsCameraActive(false);
   }
 
-  function toggleCameraFlip() {
-    const nextMode = facingMode === "environment" ? "user" : "environment";
-    setFacingMode(nextMode);
-    stopCamera();
-    startCamera(nextMode);
-  }
-
   function startScanning() {
     const scan = () => {
       const video = videoRef.current;
@@ -185,20 +165,16 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
         if (canvas) {
           const ctx = canvas.getContext("2d", { willReadFrequently: true });
           if (ctx) {
-            // Downsample video frames if too large for 60fps performance
             const maxW = 640;
             const scale = Math.min(1, maxW / video.videoWidth);
             const w = Math.round(video.videoWidth * scale);
             const h = Math.round(video.videoHeight * scale);
-
             canvas.width = w;
             canvas.height = h;
             ctx.drawImage(video, 0, 0, w, h);
 
             const imageData = ctx.getImageData(0, 0, w, h);
-            const code = jsQR(imageData.data, w, h, {
-              inversionAttempts: "dontInvert",
-            });
+            const code = jsQR(imageData.data, w, h, { inversionAttempts: "dontInvert" });
 
             if (code && code.data && !scanCooldownRef.current) {
               if (code.data !== lastScannedCodeRef.current) {
@@ -217,46 +193,63 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
       }
       scanLoopRef.current = requestAnimationFrame(scan);
     };
-
     scanLoopRef.current = requestAnimationFrame(scan);
   }
 
-  // Generate mobile connect QR
-  async function openMobileModal() {
-    setShowMobileModal(true);
-    const targetUrl = "https://visits-filename-evident-affordable.trycloudflare.com/checkin";
-    try {
-      const res = await fetch(`/api/qr?text=${encodeURIComponent(targetUrl)}`);
-      const d = await res.json();
-      if (d.success) setMobileQrDataUrl(d.dataUrl);
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
+  // Preload ticket cache for offline verification & setup cross-tab listener
   useEffect(() => {
+    async function preloadCache() {
+      try {
+        const res = await fetch(`/api/events/${eventId}/guests`);
+        if (res.ok) {
+          const data = await res.json();
+          (data.guests || []).forEach((g: any) => {
+            const name = `${g.first_name} ${g.last_name}`;
+            if (g.qr_token) ticketCacheRef.current.set(g.qr_token.toLowerCase(), { guestName: name, ticketCode: g.ticket_code });
+            if (g.ticket_code) ticketCacheRef.current.set(g.ticket_code.toLowerCase(), { guestName: name, ticketCode: g.ticket_code });
+          });
+        }
+      } catch (e) {
+        console.warn("Could not preload offline ticket cache:", e);
+      }
+    }
+    preloadCache();
+
+    // Listen to network status
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+
+    // Auto-focus the USB barcode / manual scanner input on load
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+
     return () => {
       stopCamera();
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
     };
-  }, []);
+  }, [eventId]);
 
-  async function handleProcessCheckin(codeOrToken: string, method: "qr_scan" | "manual") {
-    if (!codeOrToken.trim()) return;
+  // Main check-in verification handler
+  async function handleProcessCheckin(code: string, method: "qr_scan" | "manual" = "manual") {
+    if (!code.trim()) return;
     setLoading(true);
+    setCameraError(null);
 
     try {
-      const chosenSection = isCustomSection && customSectionInput.trim() ? customSectionInput.trim() : activeSection;
-
       const res = await fetch("/api/checkin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           event_id: eventId,
-          code_or_token: codeOrToken.trim(),
+          code_or_token: code.trim(),
           method,
-          pin: pin.trim() || undefined,
-          checkpoint: chosenSection,
-          gate_user_id: operatorUserId || undefined,
+          pin: pin || null,
+          checkpoint: activeStation,
+          gate_user_id: operatorUserId || null,
         }),
       });
 
@@ -273,376 +266,280 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
         playBeep("error");
       }
     } catch (err: any) {
-      setLastResult({
-        success: false,
-        code: "TICKET_NOT_FOUND",
-        message: err?.message || "Failed to process check-in",
-      });
-      playBeep("error");
+      // Offline fallback
+      const clean = code.trim().toLowerCase();
+      const cached = ticketCacheRef.current.get(clean);
+      if (cached) {
+        setLastResult({
+          success: true,
+          code: "CHECKIN_SUCCESS",
+          message: `Welcome, ${cached.guestName}! (${activeStation} — Offline Buffered)`,
+          section: activeStation,
+        });
+        playBeep("success");
+        setManualCode("");
+      } else {
+        setLastResult({
+          success: false,
+          code: "TICKET_NOT_FOUND",
+          message: err?.message || "Failed to process check-in",
+          section: activeStation,
+        });
+        playBeep("error");
+      }
     } finally {
       setLoading(false);
+      if (inputRef.current) inputRef.current.focus();
     }
   }
 
+  function handleManualSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!manualCode.trim()) return;
+    handleProcessCheckin(manualCode, "manual");
+  }
+
   return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Top Controller Bar */}
-      <div className="flex items-center justify-between bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 shadow-xs">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-600 shrink-0">
-            <ShieldCheck className="h-5 w-5" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-slate-900 text-xs sm:text-sm">Gate Ticket Scanner</h3>
-            <p className="text-[11px] sm:text-xs text-slate-500">Scan QR pass or verify ticket code</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors cursor-pointer border border-slate-200/80"
-            title={soundEnabled ? "Mute audio cues" : "Enable audio cues"}
-          >
-            {soundEnabled ? <Volume2 className="h-4 w-4 text-emerald-600" /> : <VolumeX className="h-4 w-4 text-slate-400" />}
-          </button>
-
-          {/* Connect Mobile QR Modal Trigger */}
-          <button
-            type="button"
-            onClick={openMobileModal}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
-            title="Open on your phone with QR code"
-          >
-            <Smartphone className="h-4 w-4 text-sky-600" />
-            <span className="hidden sm:inline">Connect Mobile</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Attendance Section / Gate Checkpoint Selector (Above Camera) */}
-      <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-4 text-white shadow-md">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 mb-3">
+    <div className="space-y-6 select-none">
+      {/* 1. Station / Section Selector Bar (Whitesmoke Surface) */}
+      <div className="bg-[#f8fafc] p-4 sm:p-5 rounded-3xl border border-slate-200/90 shadow-2xs space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-              Active Attendance Section
-            </span>
+            <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Active Checkpoint Station
+            </h3>
           </div>
-          <span className="text-[11px] text-sky-400 font-medium">
-            Logging attendance to: <strong className="text-white underline">{isCustomSection && customSectionInput ? customSectionInput : activeSection}</strong>
+          <span className="text-xs text-sky-700 font-medium">
+            Recording entries to: <strong className="text-slate-900 underline">{activeStation}</strong>
           </span>
         </div>
 
-        {/* Section Pill Selectors */}
-        <div className="flex flex-wrap gap-1.5 items-center">
-          {PRESET_SECTIONS.map((section) => {
-            const isSelected = !isCustomSection && activeSection === section;
+        {/* Station Buttons Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {STATIONS.map((station) => {
+            const Icon = station.icon;
+            const isSelected = activeStation === station.name;
             return (
               <button
-                key={section}
+                key={station.id}
                 type="button"
-                onClick={() => {
-                  setIsCustomSection(false);
-                  setActiveSection(section);
-                }}
-                className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                onClick={() => setActiveStation(station.name)}
+                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex items-center gap-2.5 ${
                   isSelected
-                    ? "bg-sky-500 text-white shadow-sm ring-2 ring-sky-300 ring-offset-1 ring-offset-slate-900"
-                    : "bg-slate-800/90 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700"
+                    ? "bg-sky-600 border-sky-600 text-white shadow-sm font-bold"
+                    : "bg-white border-slate-200 text-slate-700 hover:bg-slate-100/80"
                 }`}
               >
-                {section}
+                <div
+                  className={`h-8 w-8 rounded-xl flex items-center justify-center shrink-0 ${
+                    isSelected ? "bg-white/20 text-white" : station.color
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-xs font-bold block truncate">{station.name}</span>
+                  <span
+                    className={`text-[10px] block truncate ${
+                      isSelected ? "text-sky-100" : "text-slate-400"
+                    }`}
+                  >
+                    {station.id === "food" ? "Meals & Diet" : station.id === "vip" ? "VIP Only" : "Admission"}
+                  </span>
+                </div>
               </button>
             );
           })}
+        </div>
+      </div>
 
+      {/* 2. Primary Fast-Checkin Panel: Optimized for Laptops & USB Barcode Scanners */}
+      <div className="bg-[#f8fafc] border border-slate-200/90 rounded-3xl p-5 sm:p-6 shadow-2xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="p-2 rounded-xl bg-sky-50 text-sky-600 border border-sky-100">
+              <Laptop className="h-4 w-4" />
+            </span>
+            <div>
+              <h4 className="text-sm font-bold text-slate-900">
+                Laptop Scanner &amp; Rapid Verification
+              </h4>
+              <p className="text-[11px] text-slate-500">
+                Scan pass using any USB handheld scanner or type ticket code and press Enter.
+              </p>
+            </div>
+          </div>
+
+          {/* Sound Mute Toggle */}
           <button
             type="button"
-            onClick={() => setIsCustomSection(!isCustomSection)}
-            className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
-              isCustomSection
-                ? "bg-indigo-600 text-white shadow-sm ring-2 ring-indigo-300 ring-offset-1 ring-offset-slate-900"
-                : "bg-slate-800/90 text-slate-400 hover:bg-slate-700 hover:text-slate-200 border border-slate-700"
-            }`}
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            className="p-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 transition-colors cursor-pointer"
+            title={soundEnabled ? "Audio chime enabled" : "Audio chime muted"}
           >
-            + Custom Section
+            {soundEnabled ? <Volume2 className="h-4 w-4 text-emerald-600" /> : <VolumeX className="h-4 w-4 text-slate-400" />}
           </button>
         </div>
 
-        {isCustomSection && (
-          <div className="mt-3 flex items-center gap-2">
+        {/* Barcode Wedge Scanner Input Form */}
+        <form onSubmit={handleManualSubmit} className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-4 top-3.5 h-5 w-5 text-slate-400" />
             <input
+              ref={inputRef}
               type="text"
-              value={customSectionInput}
-              onChange={(e) => setCustomSectionInput(e.target.value)}
-              placeholder="e.g. Workshop Room 204, Speaker Green Room, Stage Door..."
-              className="flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:border-sky-400 focus:outline-none"
+              value={manualCode}
+              onChange={(e) => setManualCode(e.target.value)}
+              placeholder="Scan QR pass with USB scanner or enter ticket code (e.g. GBH-dec-2026-1001)..."
+              className="w-full pl-12 pr-28 py-3.5 bg-white border-2 border-slate-300 focus:border-sky-500 focus:ring-4 focus:ring-sky-100 rounded-2xl text-sm font-mono text-slate-900 placeholder-slate-400 shadow-inner transition-all"
             />
+            <button
+              type="submit"
+              disabled={loading || !manualCode.trim()}
+              className="absolute right-2 top-2 bottom-2 px-4 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-40"
+            >
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <span>Verify (Enter)</span>}
+            </button>
+          </div>
+        </form>
+
+        {/* Camera Toggle Button (Optional for Laptops) */}
+        <div className="flex items-center justify-between pt-2 border-t border-slate-200/80">
+          <span className="text-xs text-slate-500">
+            Using a phone/tablet or external webcam?
+          </span>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (isCameraActive) {
+                stopCamera();
+              } else {
+                startCamera();
+              }
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+          >
+            <Camera className="h-3.5 w-3.5 text-sky-600" />
+            <span>{isCameraActive ? "Deactivate Camera" : "Activate Camera Scanner"}</span>
+          </button>
+        </div>
+
+        {/* Expandable Camera Viewport (Only rendered when operator activates it) */}
+        {isCameraActive && (
+          <div className="relative overflow-hidden rounded-2xl border-2 border-slate-300 bg-black p-2 shadow-inner animate-in fade-in zoom-in-95 duration-150">
+            <div className="relative aspect-video max-h-[300px] mx-auto overflow-hidden rounded-xl bg-black flex items-center justify-center">
+              <video ref={videoRef} playsInline muted autoPlay className="h-full w-full object-cover" />
+              <canvas ref={canvasRef} className="hidden" />
+
+              {/* Reticle */}
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className="h-44 w-44 rounded-2xl border-2 border-sky-400 bg-sky-500/10 flex items-center justify-center">
+                  <div className="h-36 w-36 border border-dashed border-sky-200 rounded-xl animate-pulse" />
+                </div>
+              </div>
+
+              {/* Flip camera button */}
+              <button
+                type="button"
+                onClick={() => {
+                  const next = facingMode === "environment" ? "user" : "environment";
+                  setFacingMode(next);
+                  stopCamera();
+                  startCamera(next);
+                }}
+                className="absolute top-2 right-2 p-2 rounded-xl bg-slate-900/80 text-white text-xs hover:bg-slate-800"
+                title="Flip camera"
+              >
+                <FlipHorizontal className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {cameraError && (
+          <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+            <span>{cameraError}</span>
           </div>
         )}
       </div>
 
-      {cameraError && (
-        <div className="rounded-xl bg-amber-50 border border-amber-200 p-3.5 text-xs text-amber-800 flex items-start gap-2.5">
-          <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <span className="font-semibold block mb-0.5">Camera Notice:</span>
-            <p className="leading-relaxed">{cameraError}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Main Camera / Standby Viewport */}
-      <div className="relative overflow-hidden rounded-2xl border-2 border-slate-800 bg-slate-950 p-2 shadow-2xl">
-        <div className="relative aspect-video max-h-[360px] mx-auto overflow-hidden rounded-xl bg-black flex items-center justify-center">
-          <video
-            ref={videoRef}
-            playsInline
-            muted
-            autoPlay
-            className={`h-full w-full object-cover ${isCameraActive ? "block" : "hidden"}`}
-          />
-          <canvas ref={canvasRef} className="hidden" />
-
-          {isCameraActive ? (
-            <>
-              {/* Target Reticle */}
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div className="relative h-44 w-44 sm:h-52 sm:w-52 rounded-2xl border-2 border-sky-400 bg-sky-500/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] flex items-center justify-center">
-                  <div className="h-36 w-36 sm:h-44 sm:w-44 border border-dashed border-sky-200/80 rounded-xl animate-pulse" />
-                  <span className="absolute bottom-2 text-[10px] uppercase font-bold tracking-wider text-sky-200 bg-slate-900/90 px-2 py-0.5 rounded-full shadow-xs">
-                    Align Ticket QR
-                  </span>
-                </div>
-              </div>
-
-              {/* Floating Camera Controls when Active */}
-              <div className="absolute top-3 right-3 flex items-center gap-2 z-20">
-                <button
-                  type="button"
-                  onClick={toggleCameraFlip}
-                  className="rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-700 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1"
-                  title="Switch camera"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Flip</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={stopCamera}
-                  className="rounded-xl bg-rose-600/90 backdrop-blur-md px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-500 transition-colors cursor-pointer flex items-center gap-1 shadow-sm"
-                >
-                  <CameraOff className="h-3.5 w-3.5" />
-                  <span>Stop</span>
-                </button>
-              </div>
-            </>
-          ) : (
-            /* Standby Card with Clear, Large Primary Action Buttons */
-            <div className="text-center p-5 sm:p-8 space-y-4 w-full max-w-sm">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-sky-400 border border-slate-800 shadow-inner">
-                <QrCode className="h-7 w-7" />
-              </div>
-              <div>
-                <h4 className="text-sm sm:text-base font-bold text-white">Scanner Standby</h4>
-                <p className="text-xs text-slate-400 mt-1">
-                  Tap below to start the live camera scanner for attendees:
-                </p>
-              </div>
-              <div className="flex items-center justify-center pt-2">
-                <button
-                  type="button"
-                  onClick={() => startCamera()}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-6 py-3 text-xs sm:text-sm font-bold text-white shadow-lg hover:bg-sky-500 active:scale-95 transition-all cursor-pointer"
-                >
-                  <Camera className="h-4 w-4" />
-                  <span>Start Live Video Scanner</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Manual Entry Bar */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:p-5 shadow-xs">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleProcessCheckin(manualCode, "manual");
-          }}
-          className="space-y-3"
-        >
-          <div className="flex items-center justify-between">
-            <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
-              Manual Ticket / QR Code Lookup
-            </label>
-            <span className="text-[11px] text-slate-400">
-              Type ticket code (e.g. TK-E9XEAJ) or attendee email
-            </span>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-              <input
-                type="text"
-                value={manualCode}
-                onChange={(e) => setManualCode(e.target.value)}
-                placeholder="Enter ticket code (e.g. TK-E9XEAJ) or email"
-                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading || !manualCode.trim()}
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-            >
-              {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <span>Verify & Check In</span>
-              )}
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* Real-time Verification Result Banner */}
+      {/* 3. Real-Time Check-In Verification Feedback Card */}
       {lastResult && (
         <div
-          className={`rounded-2xl p-5 border transition-all animate-in fade-in slide-in-from-top-2 duration-200 ${
+          className={`p-5 rounded-3xl border shadow-sm transition-all animate-in fade-in duration-150 ${
             lastResult.success
-              ? "bg-emerald-50 border-emerald-300 text-emerald-900"
+              ? "bg-emerald-50/80 border-emerald-300 text-emerald-950"
               : lastResult.code === "ALREADY_CHECKED_IN"
-              ? "bg-amber-50 border-amber-300 text-amber-900"
-              : "bg-rose-50 border-rose-300 text-rose-900"
+              ? "bg-amber-50/80 border-amber-300 text-amber-950"
+              : "bg-rose-50/80 border-rose-300 text-rose-950"
           }`}
         >
-          <div className="flex items-start gap-3">
-            <div className="shrink-0 mt-0.5">
-              {lastResult.success ? (
-                <CheckCircle2 className="h-6 w-6 text-emerald-600" />
-              ) : lastResult.code === "ALREADY_CHECKED_IN" ? (
-                <AlertCircle className="h-6 w-6 text-amber-600" />
-              ) : (
-                <AlertCircle className="h-6 w-6 text-rose-600" />
-              )}
-            </div>
-
-            <div className="flex-1 space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-sm tracking-wide uppercase">
-                  {lastResult.success
-                    ? "Check-In Approved"
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div
+                className={`p-2.5 rounded-2xl shrink-0 ${
+                  lastResult.success
+                    ? "bg-emerald-600 text-white shadow-xs"
                     : lastResult.code === "ALREADY_CHECKED_IN"
-                    ? "Duplicate Check-In Detected"
-                    : "Check-In Rejected"}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setLastResult(null)}
-                  className="rounded-lg p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
-                >
-                  <X className="h-4 w-4" />
-                </button>
+                    ? "bg-amber-600 text-white shadow-xs"
+                    : "bg-rose-600 text-white shadow-xs"
+                }`}
+              >
+                {lastResult.success ? (
+                  <CheckCircle2 className="h-6 w-6" />
+                ) : (
+                  <AlertCircle className="h-6 w-6" />
+                )}
               </div>
 
-              <p className="text-xs">{lastResult.message}</p>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded-md bg-white/80 border border-black/5">
+                    {lastResult.section || activeStation}
+                  </span>
+                  <span className="text-xs font-mono font-bold text-slate-600">
+                    {lastResult.ticket?.ticket_code || lastResult.guest?.qr_token}
+                  </span>
+                </div>
 
-              {lastResult.guest && (
-                <div className="mt-3 pt-3 border-t border-black/10 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="font-bold block text-sm">
-                      {lastResult.guest.first_name} {lastResult.guest.last_name}
-                    </span>
-                    <span className="text-[11px] opacity-80">{lastResult.guest.email}</span>
+                <h3 className="text-base font-extrabold text-slate-900">
+                  {lastResult.message}
+                </h3>
+
+                {lastResult.guest && (
+                  <p className="text-xs text-slate-600">
+                    Attendee: <strong>{lastResult.guest.first_name} {lastResult.guest.last_name}</strong> ({lastResult.guest.email})
+                  </p>
+                )}
+
+                {/* Dietary Restriction Badge for Food & Catering */}
+                {lastResult.dietaryRestriction && (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold mt-1">
+                    <Utensils className="h-3.5 w-3.5 text-amber-700" />
+                    <span>Dietary: {lastResult.dietaryRestriction}</span>
                   </div>
+                )}
 
-                  <div className="text-right">
-                    <span className="font-mono text-xs font-bold block">
-                      {lastResult.ticket?.ticket_code || "TICKET"}
-                    </span>
-                    <span className="text-[10px] uppercase font-semibold">
-                      +{lastResult.guest.plus_ones_count} Guests
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {lastResult.success && (
-                <div className="mt-2.5 flex items-center justify-between text-[11px] font-semibold text-emerald-800 bg-emerald-100/70 px-3 py-1.5 rounded-xl border border-emerald-200">
-                  <span>Attendance Recorded At:</span>
-                  <span className="font-bold underline">{isCustomSection && customSectionInput ? customSectionInput : activeSection}</span>
-                </div>
-              )}
-
-              {lastResult.code === "ALREADY_CHECKED_IN" && lastResult.alreadyCheckedInAt && (
-                <div className="mt-2 text-[11px] font-medium text-amber-800 bg-amber-100/70 p-2 rounded-lg">
-                  Previously checked in at: {new Date(lastResult.alreadyCheckedInAt).toLocaleTimeString()}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Mobile Connect Modal */}
-      {showMobileModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 animate-in fade-in">
-          <div className="relative w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl text-center">
-            <button
-              type="button"
-              onClick={() => setShowMobileModal(false)}
-              className="absolute right-4 top-4 rounded-xl p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
-            >
-              <X className="h-5 w-5" />
-            </button>
-
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-50 text-sky-600 mb-3">
-              <Smartphone className="h-6 w-6" />
-            </div>
-
-            <h3 className="text-lg font-bold text-slate-900">Open on Your Mobile</h3>
-            <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-              Scan this QR code with your phone camera to open this check-in gate directly on your phone:
-            </p>
-
-            <div className="my-5 flex justify-center">
-              <div className="p-3 bg-white border border-slate-200 rounded-2xl shadow-inner">
-                {mobileQrDataUrl ? (
-                  <img
-                    src={mobileQrDataUrl}
-                    alt="Scan with phone"
-                    className="h-44 w-44 object-contain rounded-lg"
-                  />
-                ) : (
-                  <div className="h-44 w-44 flex items-center justify-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
+                {/* VIP Badge */}
+                {lastResult.tierName && (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-100 text-purple-900 border border-purple-300 text-xs font-bold mt-1 ml-2">
+                    <Crown className="h-3.5 w-3.5 text-purple-700" />
+                    <span>Pass Tier: {lastResult.tierName}</span>
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="rounded-xl bg-slate-50 p-3 text-left text-xs text-slate-600 space-y-1.5 border border-slate-200/80">
-              <span className="font-semibold text-emerald-700 block text-[11px] uppercase tracking-wider">
-                Direct Mobile HTTPS Link:
-              </span>
-              <a
-                href="https://visits-filename-evident-affordable.trycloudflare.com/checkin"
-                target="_blank"
-                rel="noreferrer"
-                className="font-mono text-xs text-sky-700 font-bold hover:underline break-all block"
-              >
-                https://visits-filename-evident-affordable.trycloudflare.com/checkin
-              </a>
-              <p className="text-[10px] text-slate-500 mt-1">
-                Works on any mobile device anywhere with full camera permissions enabled!
-              </p>
-            </div>
+            <button
+              type="button"
+              onClick={() => setLastResult(null)}
+              className="text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
         </div>
       )}

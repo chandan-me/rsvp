@@ -1,14 +1,24 @@
 import { db } from "./dbProvider";
 import { Checkin, Guest, Ticket } from "@/types/database";
+import { isLiveSupabaseConfigured, getSupabaseClient } from "./supabaseAdapter";
 
 export interface CheckinResult {
   success: boolean;
-  code: "CHECKIN_SUCCESS" | "ALREADY_CHECKED_IN" | "TICKET_NOT_FOUND" | "INVALID_PIN" | "EVENT_MISMATCH";
+  code:
+    | "CHECKIN_SUCCESS"
+    | "ALREADY_CHECKED_IN"
+    | "TICKET_NOT_FOUND"
+    | "INVALID_PIN"
+    | "EVENT_MISMATCH"
+    | "VIP_REQUIRED";
   message: string;
   checkin?: Checkin;
   guest?: Guest;
   ticket?: Ticket;
   alreadyCheckedInAt?: string;
+  section?: string;
+  dietaryRestriction?: string | null;
+  tierName?: string | null;
 }
 
 export class CheckinService {
@@ -21,6 +31,7 @@ export class CheckinService {
     operatorId?: string | null;
   }): Promise<CheckinResult> {
     const { eventId, codeOrToken, method = "qr_scan", pin, checkpoint, operatorId } = params;
+    const activeCheckpoint = (checkpoint && checkpoint.trim().length > 0) ? checkpoint.trim() : "Main Gate";
 
     // Check optional security PIN
     const settings = db.eventSettings.find((s) => s.event_id === eventId);
@@ -30,6 +41,7 @@ export class CheckinService {
           success: false,
           code: "INVALID_PIN",
           message: "Check-in PIN is incorrect. Authorization denied.",
+          section: activeCheckpoint,
         };
       }
     }
@@ -46,6 +58,7 @@ export class CheckinService {
             success: false,
             code: "EVENT_MISMATCH",
             message: "This QR code belongs to a different event.",
+            section: activeCheckpoint,
           };
         }
       }
@@ -94,22 +107,58 @@ export class CheckinService {
         success: false,
         code: "TICKET_NOT_FOUND",
         message: `No matching guest or ticket found for "${cleanCode}".`,
+        section: activeCheckpoint,
       };
     }
 
-    // Prevent duplicate check-ins
-    const existingCheckin = db.checkins.find((c) => c.ticket_id === ticket!.id);
+    // Prevent duplicate check-ins AT THE SAME STATION / CHECKPOINT
+    // (An attendee can check into Main Gate, then redeem at Food & Catering, then enter VIP Lounge)
+    const existingCheckin = db.checkins.find(
+      (c) =>
+        c.ticket_id === ticket!.id &&
+        (c.checkpoint || "Main Gate").trim().toLowerCase() === activeCheckpoint.toLowerCase()
+    );
+
     if (existingCheckin) {
       return {
         success: false,
         code: "ALREADY_CHECKED_IN",
-        message: `Already checked in at ${new Date(existingCheckin.checkin_time).toLocaleTimeString()}!`,
+        message: `${activeCheckpoint} already checked in at ${new Date(
+          existingCheckin.checkin_time
+        ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}!`,
         checkin: existingCheckin,
         guest,
         ticket,
         alreadyCheckedInAt: existingCheckin.checkin_time,
+        section: activeCheckpoint,
       };
     }
+
+    // Lookup dietary restriction for Food & Catering station
+    let dietaryRestriction: string | null = null;
+    const isFoodStation = activeCheckpoint.toLowerCase().includes("food") || activeCheckpoint.toLowerCase().includes("catering");
+    if (isFoodStation) {
+      const response = db.responses.find((r) => r.guest_id === guest!.id);
+      if (response) {
+        const dietaryAnswer = db.answers.find(
+          (a) =>
+            a.response_id === response.id &&
+            (a.answer_text?.toLowerCase().includes("veg") ||
+              a.answer_text?.toLowerCase().includes("omnivore") ||
+              a.answer_text?.toLowerCase().includes("gluten") ||
+              a.answer_text?.toLowerCase().includes("kosher") ||
+              a.answer_text?.toLowerCase().includes("halal"))
+        );
+        if (dietaryAnswer) dietaryRestriction = dietaryAnswer.answer_text;
+      }
+      if (!dietaryRestriction && guest.notes) {
+        dietaryRestriction = guest.notes;
+      }
+    }
+
+    // Verify VIP status for VIP Lounge
+    const isVipStation = activeCheckpoint.toLowerCase().includes("vip");
+    const tierName = guest.tier_name || null;
 
     // Persist new check-in record
     const checkinId = `c${Date.now().toString(36)}${Math.random().toString(36).substring(2, 6)}`;
@@ -122,20 +171,73 @@ export class CheckinService {
       gate_user_id: operatorId || null,
       checkin_time: new Date().toISOString(),
       checkin_method: method,
-      checkpoint: checkpoint || "Main Gate",
+      checkpoint: activeCheckpoint,
       created_at: new Date().toISOString(),
     };
 
     db.checkins.unshift(newCheckin);
     ticket.status = "used";
 
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const supabase = getSupabaseClient();
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (isUuid.test(eventId) && isUuid.test(ticket.id) && isUuid.test(guest.id)) {
+          await supabase.from("checkins").insert({
+            event_id: eventId,
+            ticket_id: ticket.id,
+            guest_id: guest.id,
+            checkpoint: activeCheckpoint,
+            checkin_method: method,
+            checked_in_by: isUuid.test(operatorId || "") ? operatorId : null,
+          });
+        }
+      } catch (err) {
+        console.error("Supabase checkin sync error:", err);
+      }
+    }
+
+    let successMessage = `Welcome, ${guest.first_name}! Check-in verified.`;
+    if (isFoodStation) {
+      successMessage = `Meal voucher redeemed for ${guest.first_name}! ${
+        dietaryRestriction ? `Dietary: ${dietaryRestriction}` : "Standard Meal"
+      }`;
+    } else if (isVipStation) {
+      successMessage = `VIP Lounge access granted for ${guest.first_name} (${tierName || "VIP Access"})!`;
+    }
+
     return {
       success: true,
       code: "CHECKIN_SUCCESS",
-      message: `Welcome, ${guest.first_name}! Check-in verified.`,
+      message: successMessage,
       checkin: newCheckin,
       guest,
       ticket,
+      section: activeCheckpoint,
+      dietaryRestriction,
+      tierName,
+    };
+  }
+
+  public async getStationStats(eventId: string) {
+    const checkins = db.checkins.filter((c) => c.event_id === eventId);
+    const gateCount = checkins.filter((c) => (c.checkpoint || "").toLowerCase().includes("gate")).length;
+    const foodCount = checkins.filter((c) => (c.checkpoint || "").toLowerCase().includes("food") || (c.checkpoint || "").toLowerCase().includes("cater")).length;
+    const vipCount = checkins.filter((c) => (c.checkpoint || "").toLowerCase().includes("vip")).length;
+    const breakoutCount = checkins.filter((c) => (c.checkpoint || "").toLowerCase().includes("breakout") || (c.checkpoint || "").toLowerCase().includes("lab")).length;
+
+    return {
+      totalCheckins: checkins.length,
+      gateCount,
+      foodCount,
+      vipCount,
+      breakoutCount,
+      stations: [
+        { id: "gate", name: "Main Gate Entrance", count: gateCount, section: "gate" },
+        { id: "food", name: "Food & Catering", count: foodCount, section: "food" },
+        { id: "vip", name: "VIP Lounge", count: vipCount, section: "vip_lounge" },
+        { id: "breakout", name: "Breakout Labs", count: breakoutCount, section: "breakout" },
+      ],
     };
   }
 

@@ -21,11 +21,13 @@ export function EventSettingsTab({ event, settings, onRefresh }: EventSettingsTa
   const [locationAddress, setLocationAddress] = useState(event.location_address || "");
   const [maxCapacity, setMaxCapacity] = useState(event.max_capacity?.toString() || "");
 
-  // Settings state
   const [isRsvpClosed, setIsRsvpClosed] = useState(settings.is_rsvp_closed);
   const [confirmationEmailEnabled, setConfirmationEmailEnabled] = useState(
     settings.confirmation_email_enabled
   );
+  const [requiresApproval, setRequiresApproval] = useState(settings.requires_approval ?? false);
+  const [enableWaitlist, setEnableWaitlist] = useState(settings.enable_waitlist ?? true);
+  const [ticketTiersEnabled, setTicketTiersEnabled] = useState(settings.ticket_tiers_enabled ?? true);
   const [checkinPin, setCheckinPin] = useState(settings.checkin_pin || "GATE-4821");
   const [staffEmail, setStaffEmail] = useState(settings.staff_email || "admin@craftconf.io");
   const [copiedGateCreds, setCopiedGateCreds] = useState(false);
@@ -83,6 +85,9 @@ export function EventSettingsTab({ event, settings, onRefresh }: EventSettingsTa
         body: JSON.stringify({
           is_rsvp_closed: isRsvpClosed,
           confirmation_email_enabled: confirmationEmailEnabled,
+          requires_approval: requiresApproval,
+          enable_waitlist: enableWaitlist,
+          ticket_tiers_enabled: ticketTiersEnabled,
           checkin_pin: checkinPin.trim() || null,
           staff_email: staffEmail.trim() || null,
         }),
@@ -273,6 +278,60 @@ export function EventSettingsTab({ event, settings, onRefresh }: EventSettingsTa
               </span>
               <p className="text-xs text-slate-500">
                 Guests receive their digital pass and QR code immediately upon submitting their RSVP.
+              </p>
+            </div>
+          </label>
+
+          <label className="flex items-center gap-3 cursor-pointer pt-2">
+            <input
+              type="checkbox"
+              checked={requiresApproval}
+              onChange={(e) => setRequiresApproval(e.target.checked)}
+              className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 h-4 w-4"
+            />
+            <div>
+              <span className="text-sm font-medium text-slate-800 flex items-center gap-1.5">
+                <span>Require Host Approval (Luma-Style Screening Gate)</span>
+                <span className="rounded bg-amber-100 text-amber-800 px-1.5 py-0.2 text-[10px] font-bold">
+                  Curated
+                </span>
+              </span>
+              <p className="text-xs text-slate-500">
+                Applicants submit their answers to a review queue. Entrance passes and QR codes are only dispatched once you click "Approve".
+              </p>
+            </div>
+          </label>
+
+          <label className="flex items-center gap-3 cursor-pointer pt-2">
+            <input
+              type="checkbox"
+              checked={enableWaitlist}
+              onChange={(e) => setEnableWaitlist(e.target.checked)}
+              className="rounded border-slate-300 text-violet-600 focus:ring-violet-500 h-4 w-4"
+            />
+            <div>
+              <span className="text-sm font-medium text-slate-800">
+                Automated Waitlist &amp; Auto-Promotion
+              </span>
+              <p className="text-xs text-slate-500">
+                When maximum capacity is reached, new RSVPs join the waitlist queue. If a confirmed attendee cancels, the next waitlisted applicant is automatically admitted!
+              </p>
+            </div>
+          </label>
+
+          <label className="flex items-center gap-3 cursor-pointer pt-2">
+            <input
+              type="checkbox"
+              checked={ticketTiersEnabled}
+              onChange={(e) => setTicketTiersEnabled(e.target.checked)}
+              className="rounded border-slate-300 text-sky-600 focus:ring-sky-500 h-4 w-4"
+            />
+            <div>
+              <span className="text-sm font-medium text-slate-800">
+                Multi-Tier Ticketing &amp; Admission Classes
+              </span>
+              <p className="text-xs text-slate-500">
+                Allow attendees to select admission tiers (e.g., General Admission, VIP All-Access, Speaker) with distinct badges.
               </p>
             </div>
           </label>
