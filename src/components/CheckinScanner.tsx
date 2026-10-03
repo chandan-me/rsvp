@@ -27,6 +27,12 @@ import {
   Layers,
   Laptop,
 } from "lucide-react";
+import {
+  cacheAttendeesForOffline,
+  verifyTicketOffline,
+  flushOfflineScanQueue,
+  getPendingScanCount,
+} from "@/lib/services/offlineSync";
 import { CheckinResult } from "@/lib/services/checkinService";
 
 interface CheckinScannerProps {
@@ -200,26 +206,34 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
   useEffect(() => {
     async function preloadCache() {
       try {
-        const res = await fetch(`/api/events/${eventId}/guests`);
-        if (res.ok) {
-          const data = await res.json();
-          (data.guests || []).forEach((g: any) => {
-            const name = `${g.first_name} ${g.last_name}`;
-            if (g.qr_token) ticketCacheRef.current.set(g.qr_token.toLowerCase(), { guestName: name, ticketCode: g.ticket_code });
-            if (g.ticket_code) ticketCacheRef.current.set(g.ticket_code.toLowerCase(), { guestName: name, ticketCode: g.ticket_code });
-          });
-        }
+        await cacheAttendeesForOffline(eventId);
+        const count = await getPendingScanCount(eventId);
+        setOfflineQueueCount(count);
       } catch (e) {
         console.warn("Could not preload offline ticket cache:", e);
       }
     }
     preloadCache();
 
-    // Listen to network status
-    const onOnline = () => setIsOnline(true);
+    // Auto-sync function when network is restored
+    async function handleAutoSync() {
+      setIsOnline(true);
+      const res = await flushOfflineScanQueue(eventId);
+      if (res.syncedCount > 0) {
+        setLiveSyncFeed(`Synced ${res.syncedCount} offline scan(s) to server.`);
+        setTimeout(() => setLiveSyncFeed(null), 4000);
+      }
+      const count = await getPendingScanCount(eventId);
+      setOfflineQueueCount(count);
+    }
+
+    const onOnline = () => handleAutoSync();
     const onOffline = () => setIsOnline(false);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
+
+    // Initial check of pending queue
+    getPendingScanCount(eventId).then(setOfflineQueueCount);
 
     // Auto-focus the USB barcode / manual scanner input on load
     if (inputRef.current) {
@@ -253,7 +267,7 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
         }),
       });
 
-      const data: CheckinResult = await res.json();
+      const data = await res.json();
       setLastResult(data);
 
       if (data.success) {
@@ -266,25 +280,31 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
         playBeep("error");
       }
     } catch (err: any) {
-      // Offline fallback
-      const clean = code.trim().toLowerCase();
-      const cached = ticketCacheRef.current.get(clean);
-      if (cached) {
-        setLastResult({
-          success: true,
-          code: "CHECKIN_SUCCESS",
-          message: `Welcome, ${cached.guestName}! (${activeStation} — Offline Buffered)`,
-          section: activeStation,
-        });
+      // Robust IndexedDB Offline Fallback
+      console.log("Network unavailable, performing offline verification via IndexedDB...");
+      const offlineResult = await verifyTicketOffline(
+        eventId,
+        code,
+        activeStation,
+        operatorUserId
+      );
+
+      setLastResult({
+        success: offlineResult.success,
+        code: offlineResult.code as any,
+        message: offlineResult.message,
+        guest: offlineResult.guestName ? ({ first_name: offlineResult.guestName } as any) : undefined,
+        section: activeStation,
+      });
+
+      if (offlineResult.success) {
         playBeep("success");
         setManualCode("");
+        const newQueueCount = await getPendingScanCount(eventId);
+        setOfflineQueueCount(newQueueCount);
+      } else if (offlineResult.code === "ALREADY_CHECKED_IN") {
+        playBeep("duplicate");
       } else {
-        setLastResult({
-          success: false,
-          code: "TICKET_NOT_FOUND",
-          message: err?.message || "Failed to process check-in",
-          section: activeStation,
-        });
         playBeep("error");
       }
     } finally {
@@ -391,7 +411,7 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
               type="text"
               value={manualCode}
               onChange={(e) => setManualCode(e.target.value)}
-              placeholder="Scan QR pass with USB scanner or enter ticket code (e.g. GBH-dec-2026-1001)..."
+              placeholder="Scan QR pass with USB/camera scanner or enter ticket code (e.g. PASS-001)..."
               className="w-full pl-12 pr-28 py-3.5 bg-white border-2 border-slate-300 focus:border-sky-500 focus:ring-4 focus:ring-sky-100 rounded-2xl text-sm font-mono text-slate-900 placeholder-slate-400 shadow-inner transition-all"
             />
             <button

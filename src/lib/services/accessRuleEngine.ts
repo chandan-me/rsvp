@@ -90,8 +90,7 @@ export class AccessRuleEngine {
     // Rule Check 2: Event Scoping (Event A code must NEVER work for Event B)
     const isEventMatch =
       guest.event_id === input.eventId ||
-      (input.eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && guest.event_id === "GBH-dec-2026-001") ||
-      (input.eventId === "GBH-dec-2026-001" && guest.event_id === "90763a0e-7f19-4b22-95f7-343c7af3a3d7");
+      guest.event_id.toLowerCase() === input.eventId.toLowerCase();
 
     if (!isEventMatch) {
       return deny("WRONG EVENT: This ticket is issued for a completely different event.", guest);

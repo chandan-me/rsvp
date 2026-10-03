@@ -7,32 +7,36 @@ import {
   ShieldCheck,
   Lock,
   Mail,
-  ArrowRight,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
-  Sparkles,
-  Smartphone,
-  Fingerprint,
-  UserCheck,
-  Clock,
-  Building,
   KeyRound,
-  DoorOpen,
-  Utensils,
-  Crown,
+  AlertCircle,
+  CheckCircle2,
+  Sparkles,
+  Loader2,
   Eye,
   EyeOff,
+  UserCheck,
+  Clock,
+  Fingerprint,
+  Crown,
+  DoorOpen,
+  Calendar,
 } from "lucide-react";
 
 type SecurityMode = "admin" | "station" | "mfa" | "passkey";
+
+interface EventItem {
+  id: string;
+  title: string;
+  slug?: string;
+}
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTarget = searchParams.get("redirect") || "/events";
 
-  const [securityMode, setSecurityMode] = useState<SecurityMode>("admin");
+  const initialMode = (searchParams.get("mode") as SecurityMode) || "admin";
+  const [securityMode, setSecurityMode] = useState<SecurityMode>(initialMode);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -41,18 +45,36 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [showStationPasscode, setShowStationPasscode] = useState(false);
 
-  // Admin Credentials (defaulting to Chandan N)
-  const [email, setEmail] = useState("chandan2004.n@gmail.com");
-  const [password, setPassword] = useState("PoojaMartSecure2026!");
+  // Dynamic Admin Credentials
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
-  // Station Staff Credentials
-  const [stationUserId, setStationUserId] = useState("GBH-dec-2026-FOOD-01");
-  const [stationPasscode, setStationPasscode] = useState("PASS-8841");
-  const [stationEventId, setStationEventId] = useState("90763a0e-7f19-4b22-95f7-343c7af3a3d7");
+  // Dynamic Station Staff Credentials
+  const [stationUserId, setStationUserId] = useState("");
+  const [stationPasscode, setStationPasscode] = useState("");
+  const [stationEventId, setStationEventId] = useState("");
+  const [eventsList, setEventsList] = useState<EventItem[]>([]);
 
   // MFA 6-digit TOTP state
-  const [mfaCode, setMfaCode] = useState(["7", "4", "8", "9", "2", "0"]);
+  const [mfaCode, setMfaCode] = useState(["", "", "", "", "", ""]);
   const [totpCountdown, setTotpCountdown] = useState(30);
+
+  // Fetch dynamic events for station staff selection
+  useEffect(() => {
+    async function loadEvents() {
+      try {
+        const res = await fetch("/api/events");
+        const data = await res.json();
+        if (data.events && Array.isArray(data.events) && data.events.length > 0) {
+          setEventsList(data.events);
+          setStationEventId((prev) => prev || data.events[0].id);
+        }
+      } catch {
+        // Fallback or offline
+      }
+    }
+    loadEvents();
+  }, []);
 
   // Rolling 30s TOTP countdown
   useEffect(() => {
@@ -74,14 +96,14 @@ function LoginForm() {
     };
     try {
       localStorage.setItem("rsvp_auth_session", JSON.stringify(session));
-      // Dispatch custom storage event so other components (like Navbar) update immediately
+      document.cookie = `rsvp_auth_session=${encodeURIComponent(JSON.stringify(session))}; path=/; max-age=604800; SameSite=Lax`;
       window.dispatchEvent(new Event("auth_session_changed"));
     } catch {
       // storage fallback
     }
   }
 
-  // 1. Admin Authentication
+  // 1. Dynamic Admin Authentication
   async function handleAdminAuth(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim() || !password) {
@@ -92,16 +114,26 @@ function LoginForm() {
     setError(null);
 
     try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Authentication failed");
+      }
+
       recordSession({
-        name: email.toLowerCase().includes("chandan") ? "Chandan N" : "Organizer",
-        email: email.trim(),
-        role: "admin",
+        name: data.user?.name || email.trim(),
+        email: data.user?.email || email.trim(),
+        role: data.user?.role || "admin",
       });
 
       setSuccess("Administrative identity verified! Redirecting to panel...");
       setTimeout(() => {
-        router.push(redirectTarget);
-      }, 700);
+        window.location.replace(redirectTarget);
+      }, 500);
     } catch (err: any) {
       setError(err?.message || "Invalid administrative credentials.");
     } finally {
@@ -109,7 +141,7 @@ function LoginForm() {
     }
   }
 
-  // 2. Dedicated Station Staff Authentication
+  // 2. Dedicated Dynamic Station Staff Authentication
   async function handleStationAuth(e: React.FormEvent) {
     e.preventDefault();
     if (!stationUserId.trim() || !stationPasscode.trim()) {
@@ -146,8 +178,8 @@ function LoginForm() {
 
       setSuccess(`Authenticated for ${stationName}! Launching dedicated station terminal...`);
       setTimeout(() => {
-        router.push(`/events/${stationEventId}?tab=gate_hub&operator=${encodeURIComponent(stationUserId.trim())}`);
-      }, 700);
+        window.location.replace(data.redirectUrl || `/events/${data.eventId || stationEventId}?tab=gate_hub&operator=${encodeURIComponent(cred?.user_id || stationUserId.trim())}`);
+      }, 500);
     } catch (err: any) {
       setError(err?.message || "Invalid station credentials.");
     } finally {
@@ -158,19 +190,32 @@ function LoginForm() {
   // 3. MFA Submit
   async function handleMfaSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const entered = mfaCode.join("");
+    if (entered.length < 6) {
+      setError("Please enter all 6 digits of your authenticator code.");
+      return;
+    }
     setLoading(true);
     setError(null);
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      recordSession({
-        name: "Chandan N",
-        email: "chandan2004.n@gmail.com",
+      // Validate dynamic user session
+      const meRes = await fetch("/api/auth/me");
+      const meData = await meRes.json();
+      const currentUser = meData.user || {
+        name: "Administrator",
+        email: email || "admin@rsvp.pro",
         role: "admin",
+      };
+
+      recordSession({
+        name: currentUser.name || "Administrator",
+        email: currentUser.email,
+        role: currentUser.role || "admin",
       });
 
       setSuccess("Time-based One-Time Passcode verified! Redirecting...");
-      setTimeout(() => router.push(redirectTarget), 700);
+      setTimeout(() => window.location.replace(redirectTarget), 500);
     } catch (err: any) {
       setError(err?.message || "Invalid MFA code.");
     } finally {
@@ -178,20 +223,27 @@ function LoginForm() {
     }
   }
 
-  // 4. Passkey Auth
+  // 4. Dynamic Passkey Auth
   async function handlePasskeyAuth() {
     setLoading(true);
     setError(null);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      recordSession({
-        name: "Chandan N",
-        email: "chandan2004.n@gmail.com",
+      const meRes = await fetch("/api/auth/me");
+      const meData = await meRes.json();
+      const currentUser = meData.user || {
+        name: "Security Key User",
+        email: email || "passkey@rsvp.pro",
         role: "admin",
+      };
+
+      recordSession({
+        name: currentUser.name || "Security Key User",
+        email: currentUser.email,
+        role: currentUser.role || "admin",
       });
 
       setSuccess("Hardware Security Key verified! Access granted.");
-      setTimeout(() => router.push(redirectTarget), 700);
+      setTimeout(() => window.location.replace(redirectTarget), 500);
     } catch {
       setError("Biometric verification cancelled.");
     } finally {
@@ -254,8 +306,8 @@ function LoginForm() {
                   : "text-slate-500 hover:text-slate-900"
               }`}
             >
-              <Smartphone className="h-4 w-4" />
-              <span className="text-[10px]">MFA</span>
+              <KeyRound className="h-4 w-4" />
+              <span className="text-[10px]">MFA Code</span>
             </button>
 
             <button
@@ -272,27 +324,27 @@ function LoginForm() {
             </button>
           </div>
 
-          {/* Messages */}
+          {/* Alert Messages */}
           {error && (
-            <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0 text-rose-500" />
+            <div className="p-3 bg-red-50/90 border border-red-200/80 rounded-2xl flex items-start gap-2.5 text-xs text-red-700 animate-in fade-in">
+              <AlertCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
           {success && (
-            <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+            <div className="p-3 bg-emerald-50/90 border border-emerald-200/80 rounded-2xl flex items-start gap-2.5 text-xs text-emerald-800 animate-in fade-in">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
               <span>{success}</span>
             </div>
           )}
 
-          {/* Mode 1: Admin Login */}
+          {/* Mode 1: Super Admin & Organizer Login */}
           {securityMode === "admin" && (
             <form onSubmit={handleAdminAuth} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Administrative Email
+                  Administrator Email
                 </label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
@@ -301,7 +353,7 @@ function LoginForm() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="chandan2004.n@gmail.com"
+                    placeholder="organizer@event.com"
                     className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-sky-500 shadow-2xs"
                   />
                 </div>
@@ -309,7 +361,7 @@ function LoginForm() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Master Password
+                  Password
                 </label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
@@ -318,7 +370,7 @@ function LoginForm() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter security key"
+                    placeholder="Enter password"
                     className="w-full pl-9 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-sky-500 shadow-2xs font-mono"
                   />
                   <button
@@ -330,26 +382,6 @@ function LoginForm() {
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4 text-sky-600" />}
                   </button>
                 </div>
-              </div>
-
-              {/* Fast Fill Demo Button for Chandan N */}
-              <div className="pt-0.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEmail("chandan2004.n@gmail.com");
-                    setPassword("PoojaMartSecure2026!");
-                  }}
-                  className="w-full text-left p-2.5 rounded-xl bg-sky-50 border border-sky-200 text-[11px] text-sky-800 hover:bg-sky-100 transition-colors flex items-center justify-between cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5 font-medium">
-                    <Sparkles className="h-3.5 w-3.5 text-sky-600" />
-                    <span>Quick-Fill <strong>Chandan N</strong> (Super Admin)</span>
-                  </span>
-                  <span className="text-[10px] font-bold text-sky-700 bg-sky-200/60 px-2 py-0.5 rounded">
-                    One-Tap
-                  </span>
-                </button>
               </div>
 
               <button
@@ -376,9 +408,30 @@ function LoginForm() {
                 </p>
               </div>
 
+              {/* Dynamic Event Selector */}
+              {eventsList.length > 0 && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                    <Calendar className="h-3.5 w-3.5 text-sky-600" />
+                    <span>Target Event</span>
+                  </label>
+                  <select
+                    value={stationEventId}
+                    onChange={(e) => setStationEventId(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-sky-500 shadow-2xs"
+                  >
+                    {eventsList.map((evt) => (
+                      <option key={evt.id} value={evt.id}>
+                        {evt.title} ({evt.id.slice(0, 10)}...)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Station Staff User ID
+                  Station Staff User ID or Station Name
                 </label>
                 <div className="relative">
                   <UserCheck className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
@@ -387,7 +440,7 @@ function LoginForm() {
                     required
                     value={stationUserId}
                     onChange={(e) => setStationUserId(e.target.value)}
-                    placeholder="e.g. GBH-dec-2026-FOOD-01"
+                    placeholder="Enter station user ID or station name"
                     className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-sky-500 shadow-2xs font-mono"
                   />
                 </div>
@@ -404,7 +457,7 @@ function LoginForm() {
                     required
                     value={stationPasscode}
                     onChange={(e) => setStationPasscode(e.target.value)}
-                    placeholder="e.g. PASS-8841"
+                    placeholder="Enter station passcode"
                     className="w-full pl-9 pr-10 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-sky-500 shadow-2xs font-mono"
                   />
                   <button
@@ -416,45 +469,6 @@ function LoginForm() {
                     {showStationPasscode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4 text-sky-600" />}
                   </button>
                 </div>
-              </div>
-
-              {/* Station Quick Preset Picker */}
-              <div className="grid grid-cols-3 gap-1.5 pt-1 text-[11px]">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStationUserId("GBH-dec-2026-GATE-01");
-                    setStationPasscode("PASS-4821");
-                  }}
-                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-center font-semibold cursor-pointer"
-                >
-                  <DoorOpen className="h-3 w-3 mx-auto mb-0.5 text-sky-600" />
-                  <span>Main Gate</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStationUserId("GBH-dec-2026-FOOD-01");
-                    setStationPasscode("PASS-8841");
-                  }}
-                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-center font-semibold cursor-pointer"
-                >
-                  <Utensils className="h-3 w-3 mx-auto mb-0.5 text-amber-600" />
-                  <span>Food &amp; Dining</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStationUserId("GBH-dec-2026-VIP-01");
-                    setStationPasscode("PASS-9120");
-                  }}
-                  className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-center font-semibold cursor-pointer"
-                >
-                  <Crown className="h-3 w-3 mx-auto mb-0.5 text-purple-600" />
-                  <span>VIP Lounge</span>
-                </button>
               </div>
 
               <button

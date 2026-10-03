@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -67,6 +67,43 @@ export function AdminSidebar({
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+  const [currentUser, setCurrentUser] = useState<{ name: string; email: string; role: string }>({
+    name: "Platform Host",
+    email: "organizer@event.pro",
+    role: userRole || "admin",
+  });
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("rsvp_auth_session");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.name || parsed?.user || parsed?.email) {
+          setCurrentUser({
+            name: parsed.name || parsed.user || "Platform Host",
+            email: parsed.email || "organizer@event.pro",
+            role: parsed.role || userRole || "admin",
+          });
+          return;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.authenticated && data.user) {
+          setCurrentUser({
+            name: data.user.name,
+            email: data.user.email,
+            role: data.user.role,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [userRole]);
 
   // Progressive Disclosure: Filter tabs based on event's active modules & user role
   const isModuleActive = (mod: string) => !enabledModules || enabledModules.includes(mod);
@@ -137,31 +174,33 @@ export function AdminSidebar({
     try {
       localStorage.removeItem("rsvp_auth_session");
       sessionStorage.clear();
+      document.cookie = "rsvp_auth_session=; path=/; max-age=0; SameSite=Lax";
+      window.dispatchEvent(new Event("auth_session_changed"));
     } catch {
       // ignore storage errors
     }
-    router.push("/login?signed_out=true");
+    window.location.replace("/login?signed_out=true");
   }
 
   return (
     <>
       <aside
-        className={`bg-white border-r border-slate-200 flex flex-col shrink-0 transition-all duration-200 ease-in-out relative z-30 select-none ${
+        className={`bg-white border-r border-[#e7e1f8] flex flex-col shrink-0 transition-all duration-200 ease-in-out relative z-30 select-none ${
           collapsed ? "w-20" : "w-64 sm:w-72"
         }`}
       >
-        {/* 1. Header with Sky Blue Emblem & Collapse Toggle */}
-        <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3">
+        {/* 1. Header with RSVP Purple Emblem & Collapse Toggle */}
+        <div className="p-4 border-b border-[#e7e1f8] flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-sky-500 via-sky-600 to-sky-700 flex items-center justify-center text-white shadow-md shadow-sky-500/25 shrink-0 ring-2 ring-sky-200/50">
+            <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-[#5e2ced] via-[#6e54e0] to-[#7c3aed] flex items-center justify-center text-white shadow-md shadow-purple-500/25 shrink-0 ring-2 ring-purple-100">
               <Sparkles className="h-5 w-5" />
             </div>
             {!collapsed && (
               <div className="min-w-0 flex-1">
-                <h2 className="text-sm font-extrabold tracking-tight text-slate-900 truncate uppercase">
-                  {eventTitle || "RSVP PRO"}
+                <h2 className="text-sm font-extrabold tracking-tight text-[#191236] truncate uppercase">
+                  {eventTitle || "RSVP"}
                 </h2>
-                <span className="text-[10px] uppercase font-bold tracking-widest text-sky-600 block">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-[#5e2ced] block">
                   ADMIN PANEL
                 </span>
               </div>
@@ -238,25 +277,25 @@ export function AdminSidebar({
 
         {/* 3. Bottom Profile Card & High-Security Sign Out */}
         <div className="p-3 border-t border-slate-200/80 bg-[#f8fafc] space-y-2">
-          {/* User Profile Card */}
+          {/* Dynamic User Profile Card */}
           <div
             className={`rounded-2xl bg-white border border-slate-200 p-2.5 flex items-center gap-2.5 transition-all shadow-2xs ${
               collapsed ? "justify-center p-2" : ""
             }`}
           >
-            <div className="h-9 w-9 rounded-full bg-sky-100 border border-sky-300 flex items-center justify-center text-sky-800 font-extrabold text-sm shrink-0 shadow-2xs">
-              C
+            <div className="h-9 w-9 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 border border-sky-400 flex items-center justify-center text-white font-extrabold text-sm shrink-0 shadow-2xs">
+              {(currentUser.name || "A").charAt(0).toUpperCase()}
             </div>
             {!collapsed && (
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1">
-                  <h4 className="text-xs font-bold text-slate-900 truncate">Chandan N</h4>
-                  <span className="text-[9px] bg-sky-100 text-sky-800 px-1 py-0.2 rounded font-bold border border-sky-200">
-                    Admin
+                  <h4 className="text-xs font-bold text-slate-900 truncate">{currentUser.name}</h4>
+                  <span className="text-[9px] bg-sky-100 text-sky-800 px-1 py-0.2 rounded font-bold border border-sky-200 uppercase">
+                    {currentUser.role}
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-500 truncate" title="chandan2004.n@gmail.com">
-                  chandan2004.n@gmail.com
+                <p className="text-[10px] text-slate-500 truncate" title={currentUser.email}>
+                  {currentUser.email}
                 </p>
               </div>
             )}
@@ -288,7 +327,7 @@ export function AdminSidebar({
             <div className="text-center space-y-1">
               <h3 className="text-base font-bold text-slate-900">Sign Out of Admin Panel?</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Your authenticated session for <strong>Chandan N</strong> will be securely invalidated.
+                Your authenticated session for <strong>{currentUser.name}</strong> will be securely invalidated.
               </p>
             </div>
 

@@ -32,6 +32,7 @@ import {
   AccessDecisionResult,
   ScanType,
 } from "@/types/database";
+import { AuthGuard } from "@/components/AuthGuard";
 
 export default function MobileStaffScannerPage() {
   const [events, setEvents] = useState<Event[]>([]);
@@ -237,7 +238,8 @@ export default function MobileStaffScannerPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white text-slate-900 flex flex-col font-sans">
+    <AuthGuard>
+      <div className="min-h-screen bg-white text-slate-900 flex flex-col font-sans">
       {/* Top Header */}
       <header className="bg-slate-50 border-b border-slate-200 px-4 py-3 sticky top-0 z-30 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -616,5 +618,6 @@ export default function MobileStaffScannerPage() {
         </div>
       </main>
     </div>
+    </AuthGuard>
   );
 }

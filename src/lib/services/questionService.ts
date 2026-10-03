@@ -1,7 +1,7 @@
 import { db } from "./dbProvider";
 import { RsvpQuestion, RsvpQuestionOption } from "@/types/database";
 import { RsvpQuestionInput } from "@/lib/validations/rsvp";
-import { generateProfessionalId } from "@/lib/utils";
+
 
 export class QuestionService {
   public async getQuestions(
@@ -18,18 +18,10 @@ export class QuestionService {
     const event = db.events.find((e) => e.id === eventId);
     const currentQuestions = db.questions.filter((q) => q.event_id === eventId);
     const orderIndex = input.order_index || currentQuestions.length + 1;
-    const qId = generateProfessionalId(
-      event?.title || "Event",
-      event?.start_date,
-      `Q${orderIndex}`
-    );
+    const qId = crypto.randomUUID();
 
     const options: RsvpQuestionOption[] = (input.options || []).map((opt, i) => ({
-      id: generateProfessionalId(
-        event?.title || "Event",
-        event?.start_date,
-        `OPT-${orderIndex}-${i + 1}`
-      ),
+      id: crypto.randomUUID(),
       question_id: qId,
       label: opt.label,
       value: opt.value,

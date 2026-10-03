@@ -30,17 +30,7 @@ import {
 
 // Clean, production-ready in-memory database store (fallback & local development)
 class InMemoryDB {
-  public profiles: Profile[] = [
-    {
-      id: "ADMIN-01",
-      email: "chandan2004.n@gmail.com",
-      full_name: "Chandan N",
-      role: "admin",
-      avatar_url: "",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    },
-  ];
+  public profiles: Profile[] = [];
 
   public events: Event[] = [];
   public eventModules: EventModule[] = [];

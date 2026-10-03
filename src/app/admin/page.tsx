@@ -23,6 +23,7 @@ import {
   Layers,
 } from "lucide-react";
 import { PayoutRequest, AuditLog } from "@/types/database";
+import { AuthGuard } from "@/components/AuthGuard";
 
 export default function PlatformAdminPage() {
   const [payouts, setPayouts] = useState<PayoutRequest[]>([]);
@@ -37,6 +38,12 @@ export default function PlatformAdminPage() {
   const [rejectionReason, setRejectionReason] = useState("");
 
   async function loadData() {
+    const sessionStr = localStorage.getItem("rsvp_auth_session");
+    if (!sessionStr) {
+      window.location.replace(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+
     setLoading(true);
     setActionError(null);
     try {
@@ -130,7 +137,8 @@ export default function PlatformAdminPage() {
   const totalPendingAmount = pendingPayouts.reduce((acc, p) => acc + p.amount, 0);
 
   return (
-    <div className="min-h-screen bg-white text-slate-900 font-sans pb-16">
+    <AuthGuard allowedRoles={["admin"]}>
+      <div className="min-h-screen bg-white text-slate-900 font-sans pb-16">
       {/* Top Header */}
       <header className="bg-slate-50 border-b border-slate-200 px-6 py-4 sticky top-0 z-30">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
@@ -421,5 +429,6 @@ export default function PlatformAdminPage() {
         </div>
       )}
     </div>
+    </AuthGuard>
   );
 }

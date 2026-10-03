@@ -13,6 +13,7 @@ import { ScreeningTab } from "@/components/ScreeningTab";
 import { TicketTiersTab } from "@/components/TicketTiersTab";
 import { EventConfigTab } from "@/components/EventConfigTab";
 import { FinancialsTab } from "@/components/FinancialsTab";
+import { AuthGuard } from "@/components/AuthGuard";
 import {
   Calendar,
   MapPin,
@@ -97,12 +98,14 @@ export default function EventDashboardPage({ params }: PageProps) {
         setEnabledModules(activeKeys);
       }
 
+      const sessionStr = localStorage.getItem("rsvp_auth_session");
+      if (!sessionStr) {
+        window.location.replace(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+        return;
+      }
       try {
-        const sessionStr = localStorage.getItem("rsvp_auth_session");
-        if (sessionStr) {
-          const session = JSON.parse(sessionStr);
-          if (session?.role) setUserRole(session.role);
-        }
+        const session = JSON.parse(sessionStr);
+        if (session?.role) setUserRole(session.role);
       } catch {
         // ignore
       }
@@ -197,7 +200,8 @@ export default function EventDashboardPage({ params }: PageProps) {
   const checkedInCount = stats.checkedInCount || 0;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-row">
+    <AuthGuard>
+      <div className="min-h-screen bg-slate-50 flex flex-row">
       {/* 1. Left Admin Sidebar (Matching Reference Image) */}
       <AdminSidebar
         activeTab={activeTab}
@@ -459,5 +463,6 @@ export default function EventDashboardPage({ params }: PageProps) {
         </div>
       </main>
     </div>
+    </AuthGuard>
   );
 }

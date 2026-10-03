@@ -1,7 +1,7 @@
 import { db } from "./dbProvider";
 import { RsvpResponse, RsvpAnswer, Guest, Ticket, Event, GuestStatus, RsvpStatus } from "@/types/database";
 import { RsvpSubmissionInput } from "@/lib/validations/rsvp";
-import { generateTicketCode, generateQrToken, generateProfessionalId, formatDate, formatTime, createGoogleCalendarUrl } from "@/lib/utils";
+import { generateTicketCode, generateQrToken, formatDate, formatTime, createGoogleCalendarUrl } from "@/lib/utils";
 import { notificationService } from "@/lib/notifications/service";
 import QRCode from "qrcode";
 
@@ -198,10 +198,9 @@ export class RsvpService {
       if (tierName) guest.tier_name = tierName;
       guest.updated_at = new Date().toISOString();
     } else {
-      // Create new guest with professional semantic identifier
-      const randomNum = Math.floor(1000 + Math.random() * 9000);
-      const qrToken = generateProfessionalId(event.title, event.start_date, randomNum);
-      const guestId = `${qrToken}-GUEST`;
+      // Create new guest
+      const guestId = crypto.randomUUID();
+      const qrToken = generateQrToken();
 
       guest = {
         id: guestId,
@@ -224,7 +223,7 @@ export class RsvpService {
     }
 
     // 2. Persist RSVP response record
-    const responseId = `${guest.qr_token}-RESP`;
+    const responseId = crypto.randomUUID();
     const response: RsvpResponse = {
       id: responseId,
       event_id: input.event_id,
@@ -241,7 +240,7 @@ export class RsvpService {
     if (input.answers && input.answers.length > 0) {
       for (let i = 0; i < input.answers.length; i++) {
         const ans = input.answers[i];
-        const answerId = `${responseId}-A${i + 1}`;
+        const answerId = crypto.randomUUID();
         const answerRecord: RsvpAnswer = {
           id: answerId,
           response_id: responseId,
@@ -261,7 +260,7 @@ export class RsvpService {
       ticket = db.tickets.find((t) => t.guest_id === guest!.id);
       if (!ticket) {
         ticket = {
-          id: `${guest.qr_token}-TK`,
+          id: crypto.randomUUID(),
           event_id: input.event_id,
           guest_id: guest.id,
           ticket_code: guest.qr_token,
@@ -281,9 +280,8 @@ export class RsvpService {
           const lastName = (po.last_name || (poName ? poName.split(" ").slice(1).join(" ") : "") || "Guest").trim();
           if (!po.email) continue;
 
-          const poNum = Math.floor(1000 + Math.random() * 9000);
-          const poQrToken = generateProfessionalId(event.title, event.start_date, poNum);
-          const poGuestId = `${poQrToken}-GUEST`;
+          const poGuestId = crypto.randomUUID();
+          const poQrToken = generateQrToken();
 
           const poGuest: Guest = {
             id: poGuestId,
@@ -307,7 +305,7 @@ export class RsvpService {
           db.guests.push(poGuest);
 
           const poTicket: Ticket = {
-            id: `${poQrToken}-TK`,
+            id: crypto.randomUUID(),
             event_id: input.event_id,
             guest_id: poGuestId,
             ticket_code: poQrToken,

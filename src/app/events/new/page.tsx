@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Navbar } from "@/components/Navbar";
+import { AuthGuard } from "@/components/AuthGuard";
 import {
   Calendar,
   MapPin,
@@ -256,7 +257,8 @@ export default function ConfigurableEventBuilderPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white text-slate-900 flex flex-col font-sans">
+    <AuthGuard>
+      <div className="min-h-screen bg-white text-slate-900 flex flex-col font-sans">
       <Navbar />
 
       <main className="flex-1 mx-auto max-w-4xl w-full px-4 sm:px-6 py-8">
@@ -778,5 +780,6 @@ export default function ConfigurableEventBuilderPage() {
         </div>
       </main>
     </div>
+    </AuthGuard>
   );
 }

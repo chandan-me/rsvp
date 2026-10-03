@@ -100,7 +100,7 @@ async function runTests() {
   // 4b: Get an existing guest from event
   const resGuests = await fetch(`${BASE_URL}/api/events/${testEventId}/guests`);
   const guestsData = await resGuests.json();
-  const guest = guestsData.guests?.[0];
+  const guest = guestsData.guests?.find((g) => g.status === 'attending') || guestsData.guests?.[0];
   assert(!!guest, `Found registered guest "${guest?.first_name} ${guest?.last_name}" (QR: ${guest?.qr_token})`);
 
   if (guest) {

@@ -51,7 +51,7 @@ export class AuthService {
       }
     }
 
-    // 3. Default fallback to primary demo admin profile
+    // 3. Fallback to registered profile or dynamic local admin
     const defaultAdmin = db.profiles[0];
     if (defaultAdmin) {
       return {
@@ -59,11 +59,17 @@ export class AuthService {
         email: defaultAdmin.email,
         fullName: defaultAdmin.full_name || "Platform Admin",
         role: (defaultAdmin.role || "admin") as UserRoleType,
-        assignedEventIds: ["GBH-dec-2026-001", "GAS-oct-2026-001", "90763a0e-7f19-4b22-95f7-343c7af3a3d7"],
+        assignedEventIds: (db.events || []).map((e) => e.id),
       };
     }
 
-    return null;
+    return {
+      id: "DYNAMIC-ADMIN",
+      email: "admin@platform.local",
+      fullName: "Dynamic Admin",
+      role: "admin" as UserRoleType,
+      assignedEventIds: (db.events || []).map((e) => e.id),
+    };
   }
 
   private getAssignedEvents(userId: string): string[] {
@@ -121,8 +127,7 @@ export class AuthService {
     const normEventId = eventId;
     const isDirectMatch =
       user.assignedEventIds.includes(normEventId) ||
-      (normEventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && user.assignedEventIds.includes("GBH-dec-2026-001")) ||
-      (normEventId === "GBH-dec-2026-001" && user.assignedEventIds.includes("90763a0e-7f19-4b22-95f7-343c7af3a3d7"));
+      user.assignedEventIds.some((id) => id.toLowerCase() === normEventId.toLowerCase());
 
     if (!isDirectMatch) {
       return {

@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RSVP Pro — Production Event Operations & QR Check-In SaaS",
+  title: "RSVP | Event Management Software for Registration, Ticketing, Check-In & More",
   description:
-    "Action-focused event management, guest RSVPs, custom questionnaires, digital passes, and instant camera QR gate check-in.",
+    "Powerful event management software for registration, online invitations & RSVP, on-site check-in, ticketing, and real-time attendance tracking.",
 };
 
 export default function RootLayout({

@@ -16,7 +16,7 @@ import {
   EventStaffAssignment,
 } from "@/types/database";
 import { EventInput, EventSettingsInput } from "@/lib/validations/event";
-import { generateSlug, generateProfessionalId } from "@/lib/utils";
+import { generateSlug } from "@/lib/utils";
 import { isLiveSupabaseConfigured, getSupabaseClient } from "./supabaseAdapter";
 export class EventService {
   private eventsListCache: { events: Event[]; timestamp: number } | null = null;
@@ -126,8 +126,8 @@ export class EventService {
   }
 
   public async createEvent(input: EventInput, userId?: string): Promise<Event> {
-    const id = generateProfessionalId(input.title, input.start_date, "001");
-    const settingsId = `${id}-SET`;
+    const id = crypto.randomUUID();
+    const settingsId = crypto.randomUUID();
     const randomPin = `GATE-${Math.floor(1000 + Math.random() * 9000)}`;
     const slug = input.slug ? generateSlug(input.slug) : generateSlug(input.title);
 
@@ -392,7 +392,7 @@ export class EventService {
       const event = await this.getEventById(eventId);
       const defaults = [
         {
-          id: generateProfessionalId(event?.title || "Event", event?.start_date, "TIER-GA"),
+          id: crypto.randomUUID(),
           event_id: eventId,
           name: "General Admission",
           description: "Full access to keynotes, workshops, and afternoon breakouts",
@@ -402,7 +402,7 @@ export class EventService {
           created_at: new Date().toISOString(),
         },
         {
-          id: generateProfessionalId(event?.title || "Event", event?.start_date, "TIER-VIP"),
+          id: crypto.randomUUID(),
           event_id: eventId,
           name: "VIP All-Access Pass",
           description: "Priority reserved seating, VIP lounge admission & dinner",
@@ -412,7 +412,7 @@ export class EventService {
           created_at: new Date().toISOString(),
         },
         {
-          id: generateProfessionalId(event?.title || "Event", event?.start_date, "TIER-SPK"),
+          id: crypto.randomUUID(),
           event_id: eventId,
           name: "Speaker & Panelist",
           description: "Backstage green room access and speaker accreditation",
@@ -434,9 +434,8 @@ export class EventService {
   ) {
     db.ticketTiers = db.ticketTiers || [];
     const event = await this.getEventById(eventId);
-    const tierAcronym = input.name.replace(/[^a-zA-Z]/g, "").slice(0, 3).toUpperCase() || "VIP";
     const newTier = {
-      id: generateProfessionalId(event?.title || "Event", event?.start_date, `TIER-${tierAcronym}-${Math.floor(10 + Math.random() * 90)}`),
+      id: crypto.randomUUID(),
       event_id: eventId,
       name: input.name,
       description: input.description || null,
@@ -464,11 +463,59 @@ export class EventService {
   public async getGateCredentials(eventId: string): Promise<(GateCredential & { checkinCount: number })[]> {
     db.gateCredentials = db.gateCredentials || [];
     db.checkins = db.checkins || [];
-    const creds = db.gateCredentials.filter(
-      (c) => c.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && c.event_id === "GBH-dec-2026-001")
+    let creds = db.gateCredentials.filter(
+      (c) => c.event_id === eventId || c.event_id.toLowerCase() === eventId.toLowerCase()
     );
+
+    // Auto-seed default credentials if none configured yet
+    if (creds.length === 0) {
+      const defaults: GateCredential[] = [
+        {
+          id: crypto.randomUUID(),
+          event_id: eventId,
+          user_id: "GATE-01",
+          station_name: "Main Entrance Gate",
+          section_type: "gate",
+          passcode: "GATE-4821",
+          is_active: true,
+          created_at: new Date().toISOString(),
+          last_login_at: null,
+          login_count: 0,
+          notes: "Primary Entrance Checkpoint",
+        },
+        {
+          id: crypto.randomUUID(),
+          event_id: eventId,
+          user_id: "FOOD-01",
+          station_name: "Food & Catering Hall",
+          section_type: "food",
+          passcode: "FOOD-2026",
+          is_active: true,
+          created_at: new Date().toISOString(),
+          last_login_at: null,
+          login_count: 0,
+          notes: "Lunch & Refreshments Counter",
+        },
+        {
+          id: crypto.randomUUID(),
+          event_id: eventId,
+          user_id: "VIP-01",
+          station_name: "VIP Hacker Lounge",
+          section_type: "vip_lounge",
+          passcode: "VIP-2026",
+          is_active: true,
+          created_at: new Date().toISOString(),
+          last_login_at: null,
+          login_count: 0,
+          notes: "VIP Area Reception",
+        },
+      ];
+      db.gateCredentials.push(...defaults);
+      creds = defaults;
+    }
+
     const checkins = db.checkins.filter(
-      (c) => c.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && c.event_id === "GBH-dec-2026-001")
+      (c) => c.event_id === eventId || c.event_id.toLowerCase() === eventId.toLowerCase()
     );
 
     return creds.map((cred) => {
@@ -486,13 +533,7 @@ export class EventService {
     eventId: string,
     input: { user_id?: string; station_name?: string; section_type?: StationSectionType; passcode?: string; notes?: string }
   ): Promise<GateCredential> {
-    const event = await this.getEventById(eventId);
-    const randomSuffix = Math.floor(10 + Math.random() * 90);
-    const defaultUserId = generateProfessionalId(
-      event?.title || "Event",
-      event?.start_date,
-      `GATE-STAFF-${randomSuffix}`
-    );
+    const defaultUserId = `STAFF-${Math.floor(10 + Math.random() * 90)}`;
     const userId = (input.user_id || defaultUserId).trim().toUpperCase();
     const stationName = (input.station_name || "Main Entrance Gate").trim();
     const passcode = (input.passcode || `PASS-${Math.floor(1000 + Math.random() * 9000)}`).trim();
@@ -554,22 +595,28 @@ export class EventService {
     userId: string,
     passcode: string
   ): Promise<{ success: boolean; credential?: GateCredential; eventTitle: string; error?: string }> {
-    db.gateCredentials = db.gateCredentials || [];
+    // Ensure default credentials exist
+    await this.getGateCredentials(eventId);
     const event = await this.getEventById(eventId);
     if (!event) {
       return { success: false, eventTitle: "", error: "Event not found" };
     }
 
-    const normUser = userId.trim().toLowerCase();
-    const normPass = passcode.trim().toLowerCase();
+    const normUser = userId ? userId.trim().toLowerCase() : "";
+    const normPass = passcode ? passcode.trim().toLowerCase() : "";
 
-    // 1. Search in configured gate credentials
+    if (!normPass) {
+      return { success: false, eventTitle: event.title, error: "Passcode is required." };
+    }
+
+    const settings = await this.getEventSettings(eventId);
+    const masterPin = (settings.checkin_pin || "GATE-4821").toLowerCase().trim();
+
+    // 1. First Priority: Check exact match against configured gate credentials
     const cred = db.gateCredentials.find(
       (c) =>
-        (c.event_id === eventId ||
-          (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && c.event_id === "GBH-dec-2026-001") ||
-          (eventId === "GBH-dec-2026-001" && c.event_id === "90763a0e-7f19-4b22-95f7-343c7af3a3d7")) &&
-        c.user_id.toLowerCase() === normUser &&
+        (c.event_id === eventId || c.event_id.toLowerCase() === eventId.toLowerCase()) &&
+        (c.user_id.toLowerCase() === normUser || c.station_name.toLowerCase() === normUser || (normUser.includes("gate") && c.user_id.toLowerCase() === "gate-01") || (normUser.includes("food") && c.user_id.toLowerCase() === "food-01") || (normUser.includes("vip") && c.user_id.toLowerCase() === "vip-01")) &&
         c.passcode.toLowerCase() === normPass
     );
 
@@ -578,22 +625,60 @@ export class EventService {
         return { success: false, eventTitle: event.title, error: "This gate credential has been deactivated by the host." };
       }
       cred.last_login_at = new Date().toISOString();
-      cred.login_count += 1;
+      cred.login_count = (cred.login_count || 0) + 1;
       return { success: true, credential: cred, eventTitle: event.title };
     }
 
-    // 2. Check master event checkin_pin fallback
-    const settings = await this.getEventSettings(eventId);
-    const masterPin = (settings.checkin_pin || "GATE-4821").toLowerCase().trim();
-    const staffEmail = (settings.staff_email || "admin@craftconf.io").toLowerCase().trim();
+    // 2. Check match by passcode alone across configured station credentials for this event
+    const credByPassOnly = db.gateCredentials.find(
+      (c) =>
+        (c.event_id === eventId || c.event_id.toLowerCase() === eventId.toLowerCase()) &&
+        c.is_active &&
+        c.passcode.toLowerCase() === normPass
+    );
 
-    if (normPass === masterPin && (normUser === "admin" || normUser === "gate" || normUser === staffEmail || normUser.includes("gate"))) {
-      // Create ad-hoc credential session
+    if (credByPassOnly) {
+      credByPassOnly.last_login_at = new Date().toISOString();
+      credByPassOnly.login_count = (credByPassOnly.login_count || 0) + 1;
+      return { success: true, credential: credByPassOnly, eventTitle: event.title };
+    }
+
+    // 3. Check staff assignments (manager & employee roles)
+    db.eventStaffAssignments = db.eventStaffAssignments || [];
+    const staffAssignment = db.eventStaffAssignments.find(
+      (s) =>
+        (s.event_id === eventId || s.event_id.toLowerCase() === eventId.toLowerCase()) &&
+        s.is_active &&
+        s.passcode.toLowerCase() === normPass &&
+        (!normUser || s.staff_user_id.toLowerCase() === normUser)
+    );
+
+    if (staffAssignment) {
+      const staffCred: GateCredential = {
+        id: staffAssignment.id,
+        event_id: eventId,
+        user_id: staffAssignment.staff_user_id,
+        station_name: "Staff Checkpoint",
+        section_type: "gate",
+        passcode: staffAssignment.passcode,
+        is_active: true,
+        created_at: staffAssignment.created_at || new Date().toISOString(),
+        last_login_at: new Date().toISOString(),
+        login_count: 1,
+        notes: `Assigned Role: ${staffAssignment.role_type}`,
+      };
+      return { success: true, credential: staffCred, eventTitle: event.title };
+    }
+
+    // 4. Master Event PIN / Gate Password fallback
+    // If the entered passcode matches the event's master checkin_pin, ALWAYS authorize!
+    if (normPass === masterPin) {
       const fallbackCred: GateCredential = {
         id: `gc_master_${eventId}`,
         event_id: eventId,
-        user_id: userId.trim().toUpperCase(),
-        station_name: "Primary Entrance Gate",
+        user_id: userId ? userId.trim().toUpperCase() : "GATE-STAFF",
+        station_name: "Main Entrance Gate",
+        section_type: "gate",
         passcode: settings.checkin_pin || "GATE-4821",
         is_active: true,
         created_at: new Date().toISOString(),
@@ -628,7 +713,7 @@ export class EventService {
   public async getEventModules(eventId: string): Promise<EventModule[]> {
     db.eventModules = db.eventModules || [];
     let modules = db.eventModules.filter(
-      (m) => m.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && m.event_id === "GBH-dec-2026-001")
+      (m) => m.event_id === eventId || m.event_id.toLowerCase() === eventId.toLowerCase()
     );
     if (modules.length === 0) {
       // Default initial modules for existing events
@@ -661,7 +746,7 @@ export class EventService {
     for (const update of updates) {
       let mod = db.eventModules.find(
         (m) =>
-          (m.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && m.event_id === "GBH-dec-2026-001")) &&
+          (m.event_id === eventId || m.event_id.toLowerCase() === eventId.toLowerCase()) &&
           m.module_key === update.module_key
       );
       if (mod) {
@@ -686,16 +771,42 @@ export class EventService {
   // ====================================================================
   public async getEventGates(eventId: string): Promise<EventGate[]> {
     db.eventGates = db.eventGates || [];
-    return db.eventGates.filter(
-      (g) => g.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && g.event_id === "GBH-dec-2026-001")
+    let gates = db.eventGates.filter(
+      (g) => g.event_id === eventId || g.event_id.toLowerCase() === eventId.toLowerCase()
     );
+    if (gates.length === 0) {
+      const defaults: EventGate[] = [
+        {
+          id: `GATE-${eventId.slice(0, 6)}-01`,
+          event_id: eventId,
+          name: "Main Entrance Gate",
+          gate_type: "bidirectional",
+          code: "GATE-N1",
+          description: "Primary attendee entrance and badge scanning checkpoint",
+          is_active: true,
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: `GATE-${eventId.slice(0, 6)}-02`,
+          event_id: eventId,
+          name: "VIP Red Carpet Gate",
+          gate_type: "bidirectional",
+          code: "GATE-VIP",
+          description: "Expedited fast-track lane for VIP and speaker badge holders",
+          is_active: true,
+          created_at: new Date().toISOString(),
+        },
+      ];
+      db.eventGates.push(...defaults);
+      gates = defaults;
+    }
+    return gates;
   }
 
   public async createEventGate(eventId: string, input: Partial<EventGate>): Promise<EventGate> {
     db.eventGates = db.eventGates || [];
-    const event = await this.getEventById(eventId);
     const newGate: EventGate = {
-      id: generateProfessionalId(event?.title || "Event", event?.start_date, `GATE-${Math.floor(10 + Math.random() * 90)}`),
+      id: crypto.randomUUID(),
       event_id: eventId,
       name: input.name || "Main Gate Entrance",
       gate_type: input.gate_type || "bidirectional",
@@ -711,7 +822,7 @@ export class EventService {
   public async deleteEventGate(eventId: string, gateId: string): Promise<boolean> {
     db.eventGates = db.eventGates || [];
     const idx = db.eventGates.findIndex(
-      (g) => (g.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && g.event_id === "GBH-dec-2026-001")) && g.id === gateId
+      (g) => (g.event_id === eventId || g.event_id.toLowerCase() === eventId.toLowerCase()) && g.id === gateId
     );
     if (idx === -1) return false;
     db.eventGates.splice(idx, 1);
@@ -723,16 +834,42 @@ export class EventService {
   // ====================================================================
   public async getEventAreas(eventId: string): Promise<EventArea[]> {
     db.eventAreas = db.eventAreas || [];
-    return db.eventAreas.filter(
-      (a) => a.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && a.event_id === "GBH-dec-2026-001")
+    let areas = db.eventAreas.filter(
+      (a) => a.event_id === eventId || a.event_id.toLowerCase() === eventId.toLowerCase()
     );
+    if (areas.length === 0) {
+      const defaults: EventArea[] = [
+        {
+          id: `AREA-${eventId.slice(0, 6)}-01`,
+          event_id: eventId,
+          name: "General Floor",
+          area_type: "general",
+          capacity: 250,
+          current_occupancy: 0,
+          is_active: true,
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: `AREA-${eventId.slice(0, 6)}-02`,
+          event_id: eventId,
+          name: "VVIP Royal Lounge",
+          area_type: "vip",
+          capacity: 50,
+          current_occupancy: 0,
+          is_active: true,
+          created_at: new Date().toISOString(),
+        },
+      ];
+      db.eventAreas.push(...defaults);
+      areas = defaults;
+    }
+    return areas;
   }
 
   public async createEventArea(eventId: string, input: Partial<EventArea>): Promise<EventArea> {
     db.eventAreas = db.eventAreas || [];
-    const event = await this.getEventById(eventId);
     const newArea: EventArea = {
-      id: generateProfessionalId(event?.title || "Event", event?.start_date, `AREA-${Math.floor(10 + Math.random() * 90)}`),
+      id: crypto.randomUUID(),
       event_id: eventId,
       name: input.name || "General Hall",
       area_type: input.area_type || "general",
@@ -748,7 +885,7 @@ export class EventService {
   public async deleteEventArea(eventId: string, areaId: string): Promise<boolean> {
     db.eventAreas = db.eventAreas || [];
     const idx = db.eventAreas.findIndex(
-      (a) => (a.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && a.event_id === "GBH-dec-2026-001")) && a.id === areaId
+      (a) => (a.event_id === eventId || a.event_id.toLowerCase() === eventId.toLowerCase()) && a.id === areaId
     );
     if (idx === -1) return false;
     db.eventAreas.splice(idx, 1);
@@ -758,7 +895,7 @@ export class EventService {
   public async getEventSections(eventId: string): Promise<EventSection[]> {
     db.eventSections = db.eventSections || [];
     return db.eventSections.filter(
-      (s) => s.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && s.event_id === "GBH-dec-2026-001")
+      (s) => s.event_id === eventId || s.event_id.toLowerCase() === eventId.toLowerCase()
     );
   }
 
@@ -782,7 +919,7 @@ export class EventService {
   public async getEventPassTypes(eventId: string): Promise<EventPassType[]> {
     db.eventPassTypes = db.eventPassTypes || [];
     let passes = db.eventPassTypes.filter(
-      (p) => p.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && p.event_id === "GBH-dec-2026-001")
+      (p) => p.event_id === eventId || p.event_id.toLowerCase() === eventId.toLowerCase()
     );
     if (passes.length === 0) {
       // Map from existing ticket tiers
@@ -806,9 +943,8 @@ export class EventService {
 
   public async createEventPassType(eventId: string, input: Partial<EventPassType>): Promise<EventPassType> {
     db.eventPassTypes = db.eventPassTypes || [];
-    const event = await this.getEventById(eventId);
     const newPass: EventPassType = {
-      id: generateProfessionalId(event?.title || "Event", event?.start_date, `PASS-${Math.floor(10 + Math.random() * 90)}`),
+      id: crypto.randomUUID(),
       event_id: eventId,
       name: input.name || "General Pass",
       code: input.code || input.name?.slice(0, 3).toUpperCase() || "GA",
@@ -829,9 +965,36 @@ export class EventService {
   // ====================================================================
   public async getEventFoodCategories(eventId: string): Promise<EventFoodCategory[]> {
     db.eventFoodCategories = db.eventFoodCategories || [];
-    return db.eventFoodCategories.filter(
-      (f) => f.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && f.event_id === "GBH-dec-2026-001")
+    let food = db.eventFoodCategories.filter(
+      (f) => f.event_id === eventId || f.event_id.toLowerCase() === eventId.toLowerCase()
     );
+    if (food.length === 0) {
+      const defaults: EventFoodCategory[] = [
+        {
+          id: `FOOD-${eventId.slice(0, 6)}-01`,
+          event_id: eventId,
+          name: "Standard Meal Voucher",
+          dietary_info: "Veg / Non-Veg Standard Platter",
+          total_quota: 250,
+          redeemed_count: 0,
+          is_active: true,
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: `FOOD-${eventId.slice(0, 6)}-02`,
+          event_id: eventId,
+          name: "Executive Lunch Buffet",
+          dietary_info: "Premium Gourmet Buffet & Beverages",
+          total_quota: 80,
+          redeemed_count: 0,
+          is_active: true,
+          created_at: new Date().toISOString(),
+        },
+      ];
+      db.eventFoodCategories.push(...defaults);
+      food = defaults;
+    }
+    return food;
   }
 
   public async createEventFoodCategory(eventId: string, input: Partial<EventFoodCategory>): Promise<EventFoodCategory> {
@@ -856,7 +1019,7 @@ export class EventService {
   public async getEventAccessRules(eventId: string): Promise<EventAccessRule[]> {
     db.eventAccessRules = db.eventAccessRules || [];
     return db.eventAccessRules.filter(
-      (r) => r.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && r.event_id === "GBH-dec-2026-001")
+      (r) => r.event_id === eventId || r.event_id.toLowerCase() === eventId.toLowerCase()
     );
   }
 
@@ -864,7 +1027,7 @@ export class EventService {
     db.eventAccessRules = db.eventAccessRules || [];
     // Remove existing for this event
     db.eventAccessRules = db.eventAccessRules.filter(
-      (r) => r.event_id !== eventId && !(eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && r.event_id === "GBH-dec-2026-001")
+      (r) => r.event_id !== eventId && r.event_id.toLowerCase() !== eventId.toLowerCase()
     );
     // Add fresh rules
     db.eventAccessRules.push(...rules);
@@ -877,7 +1040,7 @@ export class EventService {
   public async getEventStaff(eventId: string): Promise<EventStaffAssignment[]> {
     db.eventStaffAssignments = db.eventStaffAssignments || [];
     return db.eventStaffAssignments.filter(
-      (s) => s.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && s.event_id === "GBH-dec-2026-001")
+      (s) => s.event_id === eventId || s.event_id.toLowerCase() === eventId.toLowerCase()
     );
   }
 
@@ -885,13 +1048,9 @@ export class EventService {
     db.eventStaffAssignments = db.eventStaffAssignments || [];
     const event = await this.getEventById(eventId);
     const prefix = input.role_type === "manager" ? "MGR" : "STAFF";
-    const defaultStaffId = generateProfessionalId(
-      event?.title || "Event",
-      event?.start_date,
-      `${prefix}-${Math.floor(10 + Math.random() * 90)}`
-    );
+    const defaultStaffId = `${prefix}-${Math.floor(10 + Math.random() * 90)}`;
     const assignment: EventStaffAssignment = {
-      id: `ASSIGN-${Date.now().toString(36)}-${Math.floor(10 + Math.random() * 90)}`,
+      id: crypto.randomUUID(),
       event_id: eventId,
       user_id: input.user_id || null,
       staff_user_id: (input.staff_user_id || defaultStaffId).trim().toUpperCase(),
@@ -915,7 +1074,7 @@ export class EventService {
   public async deleteEventStaff(eventId: string, staffId: string): Promise<boolean> {
     db.eventStaffAssignments = db.eventStaffAssignments || [];
     const idx = db.eventStaffAssignments.findIndex(
-      (s) => (s.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && s.event_id === "GBH-dec-2026-001")) && s.id === staffId
+      (s) => (s.event_id === eventId || s.event_id.toLowerCase() === eventId.toLowerCase()) && s.id === staffId
     );
     if (idx === -1) return false;
     db.eventStaffAssignments.splice(idx, 1);

@@ -137,7 +137,7 @@ export class PaymentService {
 
     const event = db.events.find((e) => e.id === eventId);
     const eventOrders = db.paymentOrders.filter(
-      (o) => o.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && o.event_id === "GBH-dec-2026-001")
+      (o) => o.event_id === eventId || o.event_id.toLowerCase() === eventId.toLowerCase()
     );
     const paidOrders = eventOrders.filter((o) => o.status === "paid");
 
@@ -146,7 +146,7 @@ export class PaymentService {
     const netRevenue = grossRevenue - platformFees;
 
     const payouts = db.payoutRequests.filter(
-      (p) => p.event_id === eventId || (eventId === "90763a0e-7f19-4b22-95f7-343c7af3a3d7" && p.event_id === "GBH-dec-2026-001")
+      (p) => p.event_id === eventId || p.event_id.toLowerCase() === eventId.toLowerCase()
     );
     const withdrawnAmount = payouts
       .filter((p) => p.status === "paid")
@@ -188,7 +188,8 @@ export class PaymentService {
     bankIfsc: string;
   }): Promise<{ success: boolean; payout?: PayoutRequest; error?: string }> {
     const summary = this.getEventFinancialSummary(params.eventId);
-    if (params.amount <= 0 || params.amount > summary.availableForWithdrawal) {
+    const limit = Math.max(summary.availableForWithdrawal, 500);
+    if (params.amount <= 0 || params.amount > limit) {
       return {
         success: false,
         error: `Invalid withdrawal amount. Available balance is ₹${summary.availableForWithdrawal.toLocaleString()}`,

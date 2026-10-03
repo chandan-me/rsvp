@@ -30,7 +30,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { Event, EventSettings, GateCredential, StationSectionType } from "@/types/database";
-import { generateProfessionalId } from "@/lib/utils";
+
 
 interface GateStationsTabProps {
   eventId: string;
@@ -150,11 +150,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
     const cfg = SECTION_CONFIGS[type];
     setStationName(cfg.defaultName);
     const num = Math.floor(1 + Math.random() * 9);
-    const professionalStaffId = generateProfessionalId(
-      event?.title || "Event",
-      event?.start_date,
-      `${cfg.prefix}-0${num}`
-    );
+    const professionalStaffId = `${cfg.prefix}-0${num}`;
     setUserId(professionalStaffId);
     setPasscode(`${cfg.passPrefix}-${Math.floor(1000 + Math.random() * 9000)}`);
   }
@@ -520,7 +516,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
                 required
                 value={userId}
                 onChange={(e) => setUserId(e.target.value.toUpperCase())}
-                placeholder="e.g. GBH-dec-2026-GATE-01"
+                placeholder="e.g. GATE-STAFF-01"
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-sky-500"
               />
             </div>

@@ -73,6 +73,7 @@ function SignUpForm() {
 
       try {
         localStorage.setItem("rsvp_auth_session", JSON.stringify(session));
+        document.cookie = `rsvp_auth_session=${encodeURIComponent(JSON.stringify(session))}; path=/; max-age=604800; SameSite=Lax`;
         window.dispatchEvent(new Event("auth_session_changed"));
       } catch {
         // storage fallback
@@ -80,8 +81,8 @@ function SignUpForm() {
 
       setSuccess(`Account registered successfully for ${fullName}! Redirecting...`);
       setTimeout(() => {
-        router.push(redirectTarget);
-      }, 800);
+        window.location.replace(redirectTarget);
+      }, 500);
     } catch (err: any) {
       setError(err?.message || "Failed to create account. Please try again.");
     } finally {
@@ -134,7 +135,7 @@ function SignUpForm() {
                   required
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="e.g. Chandan N"
+                  placeholder="e.g. Alex Rivera"
                   className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-all shadow-2xs"
                 />
               </div>
