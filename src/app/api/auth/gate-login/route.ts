@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eventService } from "@/lib/services/eventService";
 import { rateLimiter } from "@/lib/services/rateLimiter";
+import { securityService } from "@/lib/services/securityService";
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,47 +40,80 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let authResult: { success: boolean; credential?: any; eventTitle?: string; eventId?: string } | null = null;
+
     // If eventId was specified, try it first
     if (eventId) {
       const auth = await eventService.authenticateGate(eventId, userId, passcode);
       if (auth.success && auth.credential) {
-        rateLimiter.reset(rateLimitKey);
-        return NextResponse.json({
-          success: true,
-          credential: auth.credential,
-          eventId,
-          eventTitle: auth.eventTitle,
-          redirectUrl: `/events/${eventId}?tab=gate_hub&operator=${encodeURIComponent(auth.credential.user_id)}`,
-        });
+        authResult = { ...auth, eventId };
       }
     }
 
     // Otherwise, search across all available events
-    for (const ev of events) {
-      const auth = await eventService.authenticateGate(ev.id, userId, passcode);
-      if (auth.success && auth.credential) {
-        rateLimiter.reset(rateLimitKey);
-        return NextResponse.json({
-          success: true,
-          credential: auth.credential,
-          eventId: ev.id,
-          eventTitle: auth.eventTitle,
-          redirectUrl: `/events/${ev.id}?tab=gate_hub&operator=${encodeURIComponent(auth.credential.user_id)}`,
-        });
+    if (!authResult) {
+      for (const ev of events) {
+        const auth = await eventService.authenticateGate(ev.id, userId, passcode);
+        if (auth.success && auth.credential) {
+          authResult = { ...auth, eventId: ev.id };
+          break;
+        }
       }
     }
 
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Invalid Station User ID or Passcode. Please check with your event administrator.",
-      },
-      { status: 401 }
-    );
+    if (!authResult || !authResult.credential) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid Station User ID or Passcode. Please check with your event administrator.",
+        },
+        { status: 401 }
+      );
+    }
+
+    rateLimiter.reset(rateLimitKey);
+
+    const cred = authResult.credential;
+    const resolvedEventId = authResult.eventId || "";
+
+    // Issue signed session token for station operator
+    const token = securityService.createSignedSessionToken({
+      userId: cred.user_id,
+      email: `${cred.user_id.toLowerCase()}@station.rsvp`,
+      role: "employee",
+      name: cred.station_name || cred.user_id,
+    });
+
+    const isProd = process.env.NODE_ENV === "production";
+
+    const response = NextResponse.json({
+      success: true,
+      credential: cred,
+      eventId: resolvedEventId,
+      eventTitle: authResult.eventTitle,
+      redirectUrl: `/events/${resolvedEventId}?tab=gate_hub&operator=${encodeURIComponent(cred.user_id)}`,
+    });
+
+    response.cookies.set("rsvp_session_token", token, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7,
+      path: "/",
+    });
+
+    response.cookies.set("rsvp_auth_session", token, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 7,
+      path: "/",
+    });
+
+    return response;
   } catch (err: any) {
-    console.error("Gate login API error:", err);
     return NextResponse.json(
-      { success: false, error: err?.message || "Internal gate login error" },
+      { success: false, error: "Internal gate login error" },
       { status: 500 }
     );
   }

@@ -6,35 +6,25 @@ import {
   Users,
   ShieldCheck,
   DoorOpen,
-  MapPin,
-  Utensils,
   Clock,
-  CheckCircle2,
-  XCircle,
   Scan,
-  RefreshCw,
-  ExternalLink,
-  Layers,
   ArrowRight,
 } from "lucide-react";
-import { Event, EventStats, ScanLog } from "@/types/database";
+import { Event, EventStats } from "@/types/database";
 import { AuthGuard } from "@/components/AuthGuard";
+import { getVerifiedSession } from "@/lib/authClient";
 
 export default function OperationsManagerPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string>("");
   const [stats, setStats] = useState<EventStats | null>(null);
-  const [scanLogs, setScanLogs] = useState<ScanLog[]>([]);
-  const [loading, setLoading] = useState(true);
-
   async function loadEvents() {
-    const sessionStr = localStorage.getItem("rsvp_auth_session");
-    if (!sessionStr) {
+    const authData = await getVerifiedSession();
+    if (!authData.authenticated || !authData.user) {
       window.location.replace(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
 
-    setLoading(true);
     try {
       const res = await fetch("/api/events");
       if (res.ok) {
@@ -47,8 +37,6 @@ export default function OperationsManagerPage() {
       }
     } catch (err) {
       console.error(err);
-    } finally {
-      setLoading(false);
     }
   }
 

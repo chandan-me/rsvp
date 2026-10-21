@@ -2,8 +2,8 @@ import { z } from "zod";
 
 export const rsvpAnswerItemSchema = z.object({
   question_id: z.string().uuid().or(z.string().min(1)),
-  answer_text: z.string().optional().nullable(),
-  answer_json: z.union([z.array(z.string()), z.boolean()]).optional().nullable(),
+  answer_text: z.string().max(3000).optional().nullable(),
+  answer_json: z.any().optional().nullable(),
 });
 
 export const plusOneDetailSchema = z.object({

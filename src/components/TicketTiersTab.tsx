@@ -97,7 +97,7 @@ export function TicketTiersTab({ eventId, event }: TicketTiersTabProps) {
     }
   }
 
-  if (loading) {
+  if (loading && tiers.length === 0) {
     return (
       <div className="rounded-2xl border border-slate-200 bg-white p-12 flex justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-amber-600" />

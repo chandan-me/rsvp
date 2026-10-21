@@ -12,18 +12,9 @@ import {
   Loader2,
   AlertCircle,
   Unlock,
-  CheckCircle2,
   LogOut,
-  Sparkles,
-  Calendar,
-  MapPin,
-  Clock,
-  Laptop,
-  Smartphone,
-  Tablet,
 } from "lucide-react";
-import { Event, EventStats, GateCredential } from "@/types/database";
-import { formatDate, formatTime } from "@/lib/utils";
+import { Event, GateCredential } from "@/types/database";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -33,8 +24,6 @@ export default function CheckinStationPage({ params }: PageProps) {
   const { id: eventId } = use(params);
 
   const [event, setEvent] = useState<Event | null>(null);
-  const [stats, setStats] = useState<EventStats | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Gate Security Lock State
   const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
@@ -68,17 +57,13 @@ export default function CheckinStationPage({ params }: PageProps) {
 
   async function loadData() {
     try {
-      setIsRefreshing(true);
       const res = await fetch(`/api/events/${eventId}`);
       if (res.ok) {
         const data = await res.json();
         setEvent(data.event);
-        setStats(data.stats);
       }
     } catch (err) {
       console.error("Failed to load gate data:", err);
-    } finally {
-      setIsRefreshing(false);
     }
   }
 

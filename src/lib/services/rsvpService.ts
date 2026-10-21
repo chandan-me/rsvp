@@ -1,8 +1,9 @@
 import { db } from "./dbProvider";
 import { RsvpResponse, RsvpAnswer, Guest, Ticket, Event, GuestStatus, RsvpStatus } from "@/types/database";
 import { RsvpSubmissionInput } from "@/lib/validations/rsvp";
-import { generateTicketCode, generateQrToken, formatDate, formatTime, createGoogleCalendarUrl } from "@/lib/utils";
+import { generateQrToken, formatDate, formatTime, createGoogleCalendarUrl } from "@/lib/utils";
 import { notificationService } from "@/lib/notifications/service";
+import { securityService } from "@/lib/services/securityService";
 import QRCode from "qrcode";
 
 export interface RsvpSubmissionResult {
@@ -236,10 +237,28 @@ export class RsvpService {
     };
     db.responses.unshift(response);
 
-    // 3. Persist Answers to custom questions
+    // 3. Persist Answers to custom questions with file security validation
     if (input.answers && input.answers.length > 0) {
       for (let i = 0; i < input.answers.length; i++) {
         const ans = input.answers[i];
+        
+        // Inspect for file/image uploads and enforce security controls
+        if (ans.answer_json && typeof ans.answer_json === "object" && ans.answer_json.dataUrl) {
+          const fileValidation = securityService.validateFileUpload({
+            fileName: ans.answer_json.fileName || "upload.bin",
+            fileSize: ans.answer_json.dataUrl.length * 0.75, // approx base64 decoded size
+            fileType: ans.answer_json.fileType || "application/octet-stream",
+            dataUrl: ans.answer_json.dataUrl,
+          });
+
+          if (!fileValidation.valid) {
+            throw new Error(`File upload rejected: ${fileValidation.error}`);
+          }
+
+          // Use sanitized safe filename
+          ans.answer_json.fileName = fileValidation.safeFileName || ans.answer_json.fileName;
+        }
+
         const answerId = crypto.randomUUID();
         const answerRecord: RsvpAnswer = {
           id: answerId,
@@ -661,6 +680,61 @@ export class RsvpService {
   public async getResponseForGuest(guestId: string): Promise<RsvpResponse | null> {
     const res = db.responses.find((r) => r.guest_id === guestId);
     return res || null;
+  }
+
+  public async lookupGuestTickets(identifier: string, eventId?: string): Promise<{
+    passes: Array<{
+      guest: Guest;
+      ticket?: Ticket;
+      event: Event;
+      isCheckedIn: boolean;
+      checkinTime?: string;
+    }>;
+  }> {
+    const clean = identifier.toLowerCase().trim();
+    if (!clean) return { passes: [] };
+
+    if (db.events.length === 0) {
+      eventService.seedDefaultEvent();
+    }
+
+    // 1. Find tickets matching the code
+    const matchingTicketIds = new Set(
+      db.tickets
+        .filter((t) => t.ticket_code.toLowerCase() === clean || t.id.toLowerCase() === clean)
+        .map((t) => t.guest_id)
+    );
+
+    // 2. Find guests matching email, qr_token, id, or ticket
+    const matchingGuests = db.guests.filter((g) => {
+      if (eventId && g.event_id !== eventId) return false;
+      return (
+        g.email.toLowerCase() === clean ||
+        g.qr_token.toLowerCase() === clean ||
+        g.id.toLowerCase() === clean ||
+        matchingTicketIds.has(g.id)
+      );
+    });
+
+    const passes = matchingGuests
+      .map((guest) => {
+        const event = db.events.find((e) => e.id === guest.event_id);
+        if (!event) return null;
+
+        const ticket = db.tickets.find((t) => t.guest_id === guest.id);
+        const checkin = ticket ? db.checkins.find((c) => c.ticket_id === ticket.id) : undefined;
+
+        return {
+          guest,
+          ticket,
+          event,
+          isCheckedIn: Boolean(checkin),
+          checkinTime: checkin?.checkin_time,
+        };
+      })
+      .filter((p): p is NonNullable<typeof p> => p !== null);
+
+    return { passes };
   }
 }
 

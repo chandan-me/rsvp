@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Search,
   Filter,
@@ -44,23 +44,27 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
   const [isBulkSending, setIsBulkSending] = useState(false);
   const [bulkSendResult, setBulkSendResult] = useState<string | null>(null);
 
-  // Client-side filtering for ultra-fast instant UI responsiveness
-  const filteredGuests = guests.filter((guest) => {
+  // Memoized client-side filtering for optimized rendering performance
+  const filteredGuests = useMemo(() => {
     const q = search.toLowerCase().trim();
-    const matchesSearch =
-      !q ||
-      guest.first_name.toLowerCase().includes(q) ||
-      guest.last_name.toLowerCase().includes(q) ||
-      guest.email.toLowerCase().includes(q) ||
-      (guest.ticketCode && guest.ticketCode.toLowerCase().includes(q));
+    return guests.filter((guest) => {
+      const matchesSearch =
+        !q ||
+        guest.first_name.toLowerCase().includes(q) ||
+        guest.last_name.toLowerCase().includes(q) ||
+        guest.email.toLowerCase().includes(q) ||
+        (guest.ticketCode && guest.ticketCode.toLowerCase().includes(q)) ||
+        (guest.seating_assignment && guest.seating_assignment.toLowerCase().includes(q)) ||
+        (guest.tier_name && guest.tier_name.toLowerCase().includes(q));
 
-    if (!matchesSearch) return false;
+      if (!matchesSearch) return false;
 
-    if (statusFilter === "all") return true;
-    if (statusFilter === "checked_in") return guest.isCheckedIn;
-    if (statusFilter === "not_checked_in") return !guest.isCheckedIn;
-    return guest.status === statusFilter;
-  });
+      if (statusFilter === "all") return true;
+      if (statusFilter === "checked_in") return guest.isCheckedIn;
+      if (statusFilter === "not_checked_in") return !guest.isCheckedIn;
+      return guest.status === statusFilter;
+    });
+  }, [guests, search, statusFilter]);
 
   async function handleSendInvitation(guestId: string) {
     setSendingInviteId(guestId);
@@ -384,6 +388,11 @@ export function GuestTable({ eventId, guests, onRefresh }: GuestTableProps) {
                         {guest.tier_name && (
                           <span className="text-[10px] font-bold text-sky-700 bg-sky-50 border border-sky-200/80 rounded px-1.5 py-0.2 inline-block">
                             {guest.tier_name}
+                          </span>
+                        )}
+                        {guest.seating_assignment && (
+                          <span className="text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-200/80 rounded px-1.5 py-0.2 inline-block">
+                            🪑 {guest.seating_assignment}
                           </span>
                         )}
                         {guest.is_plus_one && (

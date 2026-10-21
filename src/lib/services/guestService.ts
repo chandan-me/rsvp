@@ -160,6 +160,9 @@ export class GuestService {
       plus_ones_allowed: input.plus_ones_allowed ?? 0,
       plus_ones_count: input.plus_ones_count ?? 0,
       qr_token: qrToken,
+      tier_id: input.tier_id || null,
+      tier_name: input.tier_name || null,
+      seating_assignment: input.seating_assignment || null,
       notes: input.notes || null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -268,7 +271,7 @@ export class GuestService {
     guest.qr_token = newQrToken;
     guest.updated_at = new Date().toISOString();
 
-    let ticket = db.tickets.find((t) => t.guest_id === guestId);
+    const ticket = db.tickets.find((t) => t.guest_id === guestId);
     if (ticket) {
       ticket.ticket_code = newQrToken;
       ticket.qr_code_data = `RSVP:${eventId}:${newQrToken}`;
@@ -286,6 +289,8 @@ export class GuestService {
       "Email",
       "Phone",
       "RSVP Status",
+      "Ticket Tier",
+      "Seating Assignment",
       "Plus Ones",
       "Checked In",
       "Check-in Time",
@@ -311,6 +316,8 @@ export class GuestService {
       escapeCsv(g.email),
       escapeCsv(g.phone),
       escapeCsv(g.status),
+      escapeCsv(g.tier_name || "General Admission"),
+      escapeCsv(g.seating_assignment || "Unassigned"),
       escapeCsv(g.plus_ones_count),
       escapeCsv(g.isCheckedIn ? "Yes" : "No"),
       escapeCsv(g.checkinTime ? new Date(g.checkinTime).toLocaleString() : ""),

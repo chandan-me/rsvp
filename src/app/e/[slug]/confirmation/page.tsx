@@ -107,7 +107,7 @@ export default function ConfirmationPage({ params }: PageProps) {
     }
 
     fetchQr();
-  }, [event, ticketCode, qrLogo, customLogoUrl]);
+  }, [event?.id, ticketCode, qrLogo, customLogoUrl]);
 
   function handleCustomLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];

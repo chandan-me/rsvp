@@ -13,29 +13,20 @@ import { ScreeningTab } from "@/components/ScreeningTab";
 import { TicketTiersTab } from "@/components/TicketTiersTab";
 import { EventConfigTab } from "@/components/EventConfigTab";
 import { FinancialsTab } from "@/components/FinancialsTab";
+import { SecurityScanLogsTab } from "@/components/SecurityScanLogsTab";
 import { AuthGuard } from "@/components/AuthGuard";
+import { getVerifiedSession } from "@/lib/authClient";
 import {
   Calendar,
   MapPin,
-  Users,
-  Settings,
-  HelpCircle,
-  Copy,
   Check,
   ExternalLink,
   ArrowLeft,
   Loader2,
-  Clock,
-  Sparkles,
   ShieldCheck,
   Printer,
-  Mail,
-  Radio,
-  CheckSquare,
-  Tags,
-  BadgeCheck,
 } from "lucide-react";
-import { Event, EventSettings, EventStats, Guest, RsvpQuestion } from "@/types/database";
+import { Event, EventSettings, EventStats, RsvpQuestion } from "@/types/database";
 import { formatDate, formatTime } from "@/lib/utils";
 
 interface PageProps {
@@ -54,12 +45,32 @@ export default function EventDashboardPage({ params }: PageProps) {
   const [enabledModules, setEnabledModules] = useState<string[]>([]);
   const [userRole, setUserRole] = useState<string>("admin");
   const [activeTab, setActiveTab] = useState<AdminTabId>("overview");
+  const [visitedTabs, setVisitedTabs] = useState<Set<AdminTabId>>(() => new Set(["overview"]));
   const [loading, setLoading] = useState(true);
   const [copiedLink, setCopiedLink] = useState(false);
   const [liveSyncActive, setLiveSyncActive] = useState(false);
 
-  async function loadEventData() {
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev.has(activeTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
+
+  async function loadEventData(isSilent = false) {
+    if (!isSilent) setLoading(true);
     try {
+      // 1. Verify session with deduplicated client cache
+      const authData = await getVerifiedSession();
+      if (!authData.authenticated || !authData.user) {
+        window.location.replace(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+        return;
+      }
+      if (authData.user.role) setUserRole(authData.user.role);
+
+      // 2. Fetch event data
       const [resEvent, resGuests, resQuestions, resTiers, resConfig] = await Promise.all([
         fetch(`/api/events/${eventId}`),
         fetch(`/api/events/${eventId}/guests`),
@@ -97,18 +108,6 @@ export default function EventDashboardPage({ params }: PageProps) {
           .map((m: any) => m.module_key);
         setEnabledModules(activeKeys);
       }
-
-      const sessionStr = localStorage.getItem("rsvp_auth_session");
-      if (!sessionStr) {
-        window.location.replace(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
-        return;
-      }
-      try {
-        const session = JSON.parse(sessionStr);
-        if (session?.role) setUserRole(session.role);
-      } catch {
-        // ignore
-      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -117,7 +116,7 @@ export default function EventDashboardPage({ params }: PageProps) {
   }
 
   useEffect(() => {
-    loadEventData();
+    loadEventData(false);
 
     // 1. Cross-tab BroadcastChannel listener for zero-latency same-device sync
     let bc: BroadcastChannel | null = null;
@@ -126,7 +125,7 @@ export default function EventDashboardPage({ params }: PageProps) {
         bc = new BroadcastChannel(`rsvp_sync_${eventId}`);
         bc.onmessage = (msg) => {
           if (msg.data?.type === "CHECKIN" || msg.data?.type === "STATUS_CHANGE") {
-            loadEventData();
+            loadEventData(true); // silent background update
           }
         };
         setLiveSyncActive(true);
@@ -135,20 +134,24 @@ export default function EventDashboardPage({ params }: PageProps) {
       console.warn("BroadcastChannel not supported", err);
     }
 
-    // 2. Cross-device poll every 6s for multi-station updates
+    // 2. Cross-device poll for multi-station updates (pauses when tab is hidden)
     const interval = setInterval(async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
       try {
-        const res = await fetch(`/api/events/${eventId}/live-sync?since=${Date.now() - 7000}`);
+        const res = await fetch(`/api/events/${eventId}/live-sync?since=${Date.now() - 9000}`);
         if (res.ok) {
           const data = await res.json();
+          if (data.stats) {
+            setStats(data.stats);
+          }
           if (data.events && data.events.length > 0) {
-            loadEventData();
+            loadEventData(true); // silent background update
           }
         }
       } catch {
         // silent catch
       }
-    }, 6000);
+    }, 8000);
 
     return () => {
       if (bc) bc.close();
@@ -201,7 +204,7 @@ export default function EventDashboardPage({ params }: PageProps) {
 
   return (
     <AuthGuard>
-      <div className="min-h-screen bg-slate-50 flex flex-row">
+      <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
       {/* 1. Left Admin Sidebar (Matching Reference Image) */}
       <AdminSidebar
         activeTab={activeTab}
@@ -298,8 +301,8 @@ export default function EventDashboardPage({ params }: PageProps) {
         {/* Content Body */}
         <div className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6">
           {/* Tab 1: Dashboard Overview */}
-          {activeTab === "overview" && (
-            <div className="space-y-6 animate-in fade-in duration-150">
+          {visitedTabs.has("overview") && (
+            <div className={activeTab === "overview" ? "space-y-6 animate-in fade-in duration-150" : "hidden"}>
               <StatsCards stats={stats} />
 
               {/* Event Summary Grid */}
@@ -354,22 +357,22 @@ export default function EventDashboardPage({ params }: PageProps) {
           )}
 
           {/* Tab: Modules & Topography Configuration */}
-          {activeTab === "config" && (
-            <div className="animate-in fade-in duration-150">
+          {visitedTabs.has("config") && (
+            <div className={activeTab === "config" ? "animate-in fade-in duration-150" : "hidden"}>
               <EventConfigTab eventId={event.id} event={event} onRefresh={loadEventData} />
             </div>
           )}
 
           {/* Tab 2: Guest Roster */}
-          {activeTab === "guests" && (
-            <div className="animate-in fade-in duration-150">
+          {visitedTabs.has("guests") && (
+            <div className={activeTab === "guests" ? "animate-in fade-in duration-150" : "hidden"}>
               <GuestTable eventId={event.id} guests={guests} onRefresh={loadEventData} />
             </div>
           )}
 
           {/* Tab 3: Tasks & Screening */}
-          {activeTab === "screening" && (
-            <div className="animate-in fade-in duration-150">
+          {visitedTabs.has("screening") && (
+            <div className={activeTab === "screening" ? "animate-in fade-in duration-150" : "hidden"}>
               <ScreeningTab
                 eventId={event.id}
                 event={event}
@@ -380,22 +383,22 @@ export default function EventDashboardPage({ params }: PageProps) {
           )}
 
           {/* Tab 4: Ticket Tiers */}
-          {activeTab === "tiers" && (
-            <div className="animate-in fade-in duration-150">
+          {visitedTabs.has("tiers") && (
+            <div className={activeTab === "tiers" ? "animate-in fade-in duration-150" : "hidden"}>
               <TicketTiersTab eventId={event.id} event={event} />
             </div>
           )}
 
           {/* Tab 5: RSVP Questions */}
-          {activeTab === "questions" && (
-            <div className="animate-in fade-in duration-150">
+          {visitedTabs.has("questions") && (
+            <div className={activeTab === "questions" ? "animate-in fade-in duration-150" : "hidden"}>
               <QuestionBuilder eventId={event.id} questions={questions} onRefresh={loadEventData} />
             </div>
           )}
 
           {/* Tab 6: Unified Gate & Check-In Hub (Consolidated in ONE place) */}
-          {activeTab === "gate_hub" && (
-            <div className="animate-in fade-in duration-150">
+          {visitedTabs.has("gate_hub") && (
+            <div className={activeTab === "gate_hub" ? "animate-in fade-in duration-150" : "hidden"}>
               <GateHub
                 eventId={event.id}
                 event={event}
@@ -405,23 +408,30 @@ export default function EventDashboardPage({ params }: PageProps) {
             </div>
           )}
 
+          {/* Tab: Gate Scans & Security Audit Logs */}
+          {visitedTabs.has("scan_logs") && (
+            <div className={activeTab === "scan_logs" ? "animate-in fade-in duration-150" : "hidden"}>
+              <SecurityScanLogsTab eventId={event.id} event={event} />
+            </div>
+          )}
+
           {/* Tab: Financial Ledger & Settlements */}
-          {activeTab === "financials" && (
-            <div className="animate-in fade-in duration-150">
+          {visitedTabs.has("financials") && (
+            <div className={activeTab === "financials" ? "animate-in fade-in duration-150" : "hidden"}>
               <FinancialsTab eventId={event.id} userRole={userRole} />
             </div>
           )}
 
           {/* Tab 7: Email Broadcasts */}
-          {activeTab === "broadcast" && (
-            <div className="animate-in fade-in duration-150">
+          {visitedTabs.has("broadcast") && (
+            <div className={activeTab === "broadcast" ? "animate-in fade-in duration-150" : "hidden"}>
               <BroadcastTab eventId={event.id} totalGuests={guests.length} />
             </div>
           )}
 
           {/* Tab 8: Name Badges Studio */}
-          {activeTab === "badges" && (
-            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs space-y-4 animate-in fade-in duration-150">
+          {visitedTabs.has("badges") && (
+            <div className={activeTab === "badges" ? "rounded-2xl border border-slate-200 bg-white p-6 shadow-xs space-y-4 animate-in fade-in duration-150" : "hidden"}>
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-base font-bold text-slate-900">Name Badge Studio</h3>
@@ -455,8 +465,8 @@ export default function EventDashboardPage({ params }: PageProps) {
           )}
 
           {/* Tab 9: Event Settings */}
-          {activeTab === "settings" && (
-            <div className="animate-in fade-in duration-150">
+          {visitedTabs.has("settings") && (
+            <div className={activeTab === "settings" ? "animate-in fade-in duration-150" : "hidden"}>
               <EventSettingsTab event={event} settings={settings} onRefresh={loadEventData} />
             </div>
           )}

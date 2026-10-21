@@ -2,13 +2,13 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
+import jsQR from "jsqr";
 import {
   Scan,
   ShieldCheck,
   CheckCircle2,
   XCircle,
   AlertTriangle,
-  RotateCcw,
   ArrowRightLeft,
   Utensils,
   MapPin,
@@ -16,12 +16,14 @@ import {
   Layers,
   Volume2,
   VolumeX,
-  Vibrate,
   Loader2,
   User,
   Clock,
-  Sparkles,
   Search,
+  Camera,
+  CameraOff,
+  FlipHorizontal,
+  Keyboard,
 } from "lucide-react";
 import {
   Event,
@@ -49,6 +51,16 @@ export default function MobileStaffScannerPage() {
   const [checkpointType, setCheckpointType] = useState<"gate" | "area" | "section" | "food">("gate");
   const [selectedCheckpointId, setSelectedCheckpointId] = useState<string>("");
   const [scanType, setScanType] = useState<ScanType>("entry");
+
+  // Camera vs Keypad Input Mode
+  const [inputMode, setInputMode] = useState<"camera" | "manual">("camera");
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [facingMode, setFacingMode] = useState<"environment" | "user">("environment");
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const scanLoopRef = useRef<number | null>(null);
+  const scanCooldownRef = useRef(false);
 
   // Scanner & Input State
   const [inputCode, setInputCode] = useState("");
@@ -236,6 +248,135 @@ export default function MobileStaffScannerPage() {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   }
+
+  function stopCamera() {
+    if (scanLoopRef.current) {
+      cancelAnimationFrame(scanLoopRef.current);
+      scanLoopRef.current = null;
+    }
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setCameraActive(false);
+  }
+
+  async function startCamera(overrideFacing?: "environment" | "user") {
+    setCameraError(null);
+    const mode = overrideFacing || facingMode;
+
+    try {
+      if (!navigator?.mediaDevices?.getUserMedia) {
+        throw new Error("Camera API not accessible in this browser context.");
+      }
+
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: mode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch {
+        // Fallback for laptops/desktops without facingMode constraint support
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
+
+      setCameraActive(true);
+
+      // Ensure video element has stream attached and playing
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.setAttribute("playsinline", "true");
+        try {
+          await videoRef.current.play();
+        } catch (playErr) {
+          console.warn("Video play error:", playErr);
+        }
+        startScanningLoop();
+      }
+    } catch (err: any) {
+      console.warn("Camera start error:", err);
+      setCameraError(err?.message || "Camera permission denied or camera device unavailable.");
+      setCameraActive(false);
+    }
+  }
+
+  function toggleCamera() {
+    if (cameraActive) {
+      stopCamera();
+    } else {
+      startCamera();
+    }
+  }
+
+  function flipCamera() {
+    const nextFacing = facingMode === "environment" ? "user" : "environment";
+    setFacingMode(nextFacing);
+    if (cameraActive) {
+      stopCamera();
+      setTimeout(() => startCamera(nextFacing), 150);
+    }
+  }
+
+  function startScanningLoop() {
+    function tick() {
+      if (!videoRef.current || !canvasRef.current) return;
+
+      if (videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+        if (ctx) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const code = jsQR(imageData.data, imageData.width, imageData.height, {
+            inversionAttempts: "dontInvert",
+          });
+
+          if (code && code.data && !scanCooldownRef.current && !isVerifying) {
+            scanCooldownRef.current = true;
+            let codeData = code.data;
+            if (codeData.startsWith("RSVP:")) {
+              const parts = codeData.split(":");
+              if (parts.length >= 3) {
+                codeData = parts.slice(2).join(":");
+              }
+            }
+            handleVerify(codeData);
+            setTimeout(() => {
+              scanCooldownRef.current = false;
+            }, 1200);
+          }
+        }
+      }
+
+      scanLoopRef.current = requestAnimationFrame(tick);
+    }
+
+    if (scanLoopRef.current) {
+      cancelAnimationFrame(scanLoopRef.current);
+    }
+    scanLoopRef.current = requestAnimationFrame(tick);
+  }
+
+  // Cleanup camera stream on unmount
+  useEffect(() => {
+    return () => {
+      stopCamera();
+    };
+  }, []);
 
   return (
     <AuthGuard>
@@ -457,8 +598,142 @@ export default function MobileStaffScannerPage() {
           </div>
         </div>
 
-        {/* 2. Instant Scanner & Manual Input Viewport */}
+        {/* 2. Interactive Camera Scanner & Barcode Viewport */}
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setInputMode("camera");
+                  if (!cameraActive) startCamera();
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  inputMode === "camera"
+                    ? "bg-white text-sky-700 shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>Live Camera Scanner</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setInputMode("manual");
+                  stopCamera();
+                  setTimeout(() => inputRef.current?.focus(), 100);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  inputMode === "manual"
+                    ? "bg-white text-sky-700 shadow-xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Keyboard className="w-3.5 h-3.5" />
+                <span>Manual / USB Wedge</span>
+              </button>
+            </div>
+
+            {inputMode === "camera" && cameraActive && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={flipCamera}
+                  className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1 shadow-2xs transition cursor-pointer"
+                  title="Switch front/rear camera"
+                >
+                  <FlipHorizontal className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Flip Camera</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={stopCamera}
+                  className="px-2.5 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold flex items-center gap-1 transition cursor-pointer"
+                  title="Stop camera"
+                >
+                  <CameraOff className="w-3.5 h-3.5" />
+                  <span>Pause</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Hidden Canvas used for machine vision frame decoding */}
+          <canvas ref={canvasRef} className="hidden" />
+
+          {/* Mode 1: Live Video Camera Viewport */}
+          {inputMode === "camera" && (
+            <div className="space-y-3">
+              {/* Mounted Video Element & Reticle: Always in DOM */}
+              <div
+                className={`relative aspect-video max-h-[360px] w-full rounded-2xl overflow-hidden bg-slate-950 items-center justify-center shadow-inner border border-slate-800 ${
+                  cameraActive ? "flex" : "hidden"
+                }`}
+              >
+                <video
+                  ref={videoRef}
+                  playsInline
+                  autoPlay
+                  muted
+                  className="w-full h-full object-cover"
+                />
+
+                {/* High-Tech Viewfinder Reticle Overlay */}
+                <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-6">
+                  <div className="relative w-48 h-48 sm:w-56 sm:h-56">
+                    {/* Four Corner Brackets */}
+                    <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-sky-400 rounded-tl-lg" />
+                    <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-sky-400 rounded-tr-lg" />
+                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-sky-400 rounded-bl-lg" />
+                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-sky-400 rounded-br-lg" />
+
+                    {/* Animated Laser Scanning Beam */}
+                    <div className="absolute left-2 right-2 top-1/2 -translate-y-1/2 h-0.5 bg-sky-400 shadow-[0_0_12px_#38bdf8] animate-pulse" />
+                  </div>
+                </div>
+
+                {/* Bottom Scan Status Indicator */}
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-slate-900/80 backdrop-blur-md text-white text-[11px] font-semibold flex items-center gap-2 border border-white/10">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  <span>Point at QR pass badge</span>
+                </div>
+              </div>
+
+              {/* Placeholder when camera is stopped */}
+              {!cameraActive && (
+                <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 p-8 text-center space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-sky-100 text-sky-600 flex items-center justify-center mx-auto shadow-2xs">
+                    <Camera className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Mobile Video Camera Scanner</h3>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto mt-0.5">
+                      Activate your device camera to scan attendee QR passes in real time with audio and haptic feedback.
+                    </p>
+                  </div>
+
+                  {cameraError && (
+                    <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 p-2 rounded-xl max-w-sm mx-auto font-medium">
+                      {cameraError}
+                    </p>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => startCamera()}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-sm shadow-sky-600/30 transition cursor-pointer"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>Start Camera Scanner</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Mode 2: Manual Keypad / USB Barcode Wedge Form */}
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -471,10 +746,9 @@ export default function MobileStaffScannerPage() {
               <input
                 ref={inputRef}
                 type="text"
-                autoFocus
                 value={inputCode}
                 onChange={(e) => setInputCode(e.target.value)}
-                placeholder="Scan QR or enter Guest Code (e.g. GBH-2026-X8F9)..."
+                placeholder="Scan QR with handheld or enter ticket code (e.g. GBH-2026-X8F9)..."
                 className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-base font-mono font-bold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-inner"
               />
             </div>
@@ -487,31 +761,31 @@ export default function MobileStaffScannerPage() {
               {isVerifying ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Verifying...
+                  <span>Verifying...</span>
                 </>
               ) : (
                 <>
                   <ShieldCheck className="w-4 h-4" />
-                  Verify Access
+                  <span>Verify Pass</span>
                 </>
               )}
             </button>
           </form>
 
           {/* Quick Demo Shortcuts */}
-          <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500">
-            <span className="font-semibold">Quick Test:</span>
+          <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500 pt-1">
+            <span className="font-semibold text-slate-400">Quick Test:</span>
             <button
               type="button"
               onClick={() => handleVerify("GBH-2026-DEMO")}
-              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-md font-mono text-slate-700 transition"
+              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-md font-mono text-slate-700 transition cursor-pointer"
             >
               GBH-2026-DEMO
             </button>
             <button
               type="button"
               onClick={() => handleVerify("VIP-PASS-TEST")}
-              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-md font-mono text-slate-700 transition"
+              className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded-md font-mono text-slate-700 transition cursor-pointer"
             >
               VIP-PASS-TEST
             </button>
@@ -559,9 +833,16 @@ export default function MobileStaffScannerPage() {
                     {lastDecision.guest.first_name} {lastDecision.guest.last_name}
                   </div>
                   <div className="text-xs opacity-90 truncate">{lastDecision.guest.email}</div>
+                  {lastDecision.guest.seating_assignment && (
+                    <div className="mt-1.5 text-xs font-bold bg-white/20 px-2.5 py-1 rounded-lg inline-flex items-center gap-1">
+                      <span>🪑 Table / Seat: {lastDecision.guest.seating_assignment}</span>
+                    </div>
+                  )}
                   {lastDecision.pass && (
-                    <div className="mt-2 inline-block px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-white text-slate-900 shadow-2xs">
-                      {lastDecision.pass.name} Pass
+                    <div className="mt-2 block">
+                      <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-white text-slate-900 shadow-2xs">
+                        {lastDecision.pass.name} Pass
+                      </span>
                     </div>
                   )}
                 </div>

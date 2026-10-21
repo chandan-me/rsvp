@@ -11,20 +11,11 @@ import {
   FlipHorizontal,
   Search,
   Loader2,
-  KeyRound,
-  Users,
-  ShieldCheck,
-  RefreshCw,
-  Smartphone,
-  QrCode,
-  Upload,
   X,
   Sparkles,
   DoorOpen,
   Utensils,
   Crown,
-  ChevronDown,
-  Layers,
   Laptop,
 } from "lucide-react";
 import {
@@ -59,7 +50,6 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
   const [isOnline, setIsOnline] = useState(true);
   const [offlineQueueCount, setOfflineQueueCount] = useState(0);
   const [liveSyncFeed, setLiveSyncFeed] = useState<string | null>(null);
-  const ticketCacheRef = useRef<Map<string, { guestName: string; ticketCode: string }>>(new Map());
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -124,14 +114,25 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
         throw new Error("Camera not accessible in this browser context.");
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: mode },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-        audio: false,
-      });
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: mode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch {
+        // Fallback for laptop / desktop webcams
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
+
+      setIsCameraActive(true);
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -141,7 +142,6 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
         } catch (playErr) {
           console.warn("Video play error:", playErr);
         }
-        setIsCameraActive(true);
         startScanning();
       }
     } catch (err: any) {
@@ -447,36 +447,35 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
         </div>
 
         {/* Expandable Camera Viewport (Only rendered when operator activates it) */}
-        {isCameraActive && (
-          <div className="relative overflow-hidden rounded-2xl border-2 border-slate-300 bg-black p-2 shadow-inner animate-in fade-in zoom-in-95 duration-150">
-            <div className="relative aspect-video max-h-[300px] mx-auto overflow-hidden rounded-xl bg-black flex items-center justify-center">
-              <video ref={videoRef} playsInline muted autoPlay className="h-full w-full object-cover" />
-              <canvas ref={canvasRef} className="hidden" />
+        {/* Expandable Camera Viewport (Always in DOM so ref is never null) */}
+        <div className={`relative overflow-hidden rounded-2xl border-2 border-slate-300 bg-black p-2 shadow-inner animate-in fade-in zoom-in-95 duration-150 ${isCameraActive ? "block" : "hidden"}`}>
+          <div className="relative aspect-video max-h-[300px] mx-auto overflow-hidden rounded-xl bg-black flex items-center justify-center">
+            <video ref={videoRef} playsInline muted autoPlay className="h-full w-full object-cover" />
+            <canvas ref={canvasRef} className="hidden" />
 
-              {/* Reticle */}
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div className="h-44 w-44 rounded-2xl border-2 border-sky-400 bg-sky-500/10 flex items-center justify-center">
-                  <div className="h-36 w-36 border border-dashed border-sky-200 rounded-xl animate-pulse" />
-                </div>
+            {/* Reticle */}
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="h-44 w-44 rounded-2xl border-2 border-sky-400 bg-sky-500/10 flex items-center justify-center">
+                <div className="h-36 w-36 border border-dashed border-sky-200 rounded-xl animate-pulse" />
               </div>
-
-              {/* Flip camera button */}
-              <button
-                type="button"
-                onClick={() => {
-                  const next = facingMode === "environment" ? "user" : "environment";
-                  setFacingMode(next);
-                  stopCamera();
-                  startCamera(next);
-                }}
-                className="absolute top-2 right-2 p-2 rounded-xl bg-slate-900/80 text-white text-xs hover:bg-slate-800"
-                title="Flip camera"
-              >
-                <FlipHorizontal className="h-4 w-4" />
-              </button>
             </div>
+
+            {/* Flip camera button */}
+            <button
+              type="button"
+              onClick={() => {
+                const next = facingMode === "environment" ? "user" : "environment";
+                setFacingMode(next);
+                stopCamera();
+                startCamera(next);
+              }}
+              className="absolute top-2 right-2 p-2 rounded-xl bg-slate-900/80 text-white text-xs hover:bg-slate-800"
+              title="Flip camera"
+            >
+              <FlipHorizontal className="h-4 w-4" />
+            </button>
           </div>
-        )}
+        </div>
 
         {cameraError && (
           <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800 flex items-center gap-2">
@@ -548,6 +547,13 @@ export function CheckinScanner({ eventId, operatorUserId, onCheckinSuccess }: Ch
                   <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-100 text-purple-900 border border-purple-300 text-xs font-bold mt-1 ml-2">
                     <Crown className="h-3.5 w-3.5 text-purple-700" />
                     <span>Pass Tier: {lastResult.tierName}</span>
+                  </div>
+                )}
+
+                {/* Seating Assignment */}
+                {lastResult.guest?.seating_assignment && (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-100 text-sky-900 border border-sky-300 text-xs font-bold mt-1 ml-2">
+                    <span>🪑 Seat: {lastResult.guest.seating_assignment}</span>
                   </div>
                 )}
               </div>

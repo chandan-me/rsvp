@@ -4,6 +4,7 @@ import {
   EventSettings,
   EventStats,
   GateCredential,
+  Guest,
   StationSectionType,
   EventModule,
   EventModuleKey,
@@ -17,7 +18,7 @@ import {
 } from "@/types/database";
 import { EventInput, EventSettingsInput } from "@/lib/validations/event";
 import { generateSlug } from "@/lib/utils";
-import { isLiveSupabaseConfigured, getSupabaseClient } from "./supabaseAdapter";
+import { isLiveSupabaseConfigured, getSupabaseClient, markLiveSupabaseUnreachable } from "./supabaseAdapter";
 export class EventService {
   private eventsListCache: { events: Event[]; timestamp: number } | null = null;
 
@@ -40,8 +41,13 @@ export class EventService {
           return list;
         }
       } catch (err) {
+        markLiveSupabaseUnreachable();
         console.error("Supabase getEvents error, falling back to local:", err);
       }
+    }
+
+    if (db.events.length === 0) {
+      this.seedDefaultEvent();
     }
 
     const list = [...db.events].sort(
@@ -49,6 +55,194 @@ export class EventService {
     );
     this.eventsListCache = { events: list, timestamp: Date.now() };
     return list;
+  }
+
+  public seedDefaultEvent(): Event {
+    const existing = db.events.find((e) => e.slug === "google-build-hackathon-2026");
+    if (existing) return existing;
+
+    const eventId = "ev_gbh_2026";
+    const demoEvent: Event = {
+      id: eventId,
+      created_by: "host_platform_admin",
+      title: "Google Build Hackathon 2026",
+      slug: "google-build-hackathon-2026",
+      description: "The premier developer event uniting 500+ top software engineers, AI builders, and architects for 48 hours of rapid prototyping with Gemini and modern web technologies.",
+      cover_image_url: "https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=1600&q=80",
+      start_date: "2026-11-14T09:00:00.000Z",
+      end_date: "2026-11-16T18:00:00.000Z",
+      timezone: "America/Los_Angeles",
+      location_name: "Google Campus Innovation Arena",
+      location_address: "1600 Amphitheatre Pkwy, Mountain View, CA 94043",
+      is_published: true,
+      max_capacity: 500,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    db.events.unshift(demoEvent);
+
+    // Seed Settings
+    if (!db.eventSettings.some((s) => s.event_id === eventId)) {
+      db.eventSettings.push({
+        id: "set_gbh_2026",
+        event_id: eventId,
+        allow_guest_list_public: true,
+        notify_host_on_rsvp: true,
+        confirmation_email_enabled: true,
+        checkin_pin: "GATE-4821",
+        staff_email: "admin@craftconf.io",
+        gate_access_key: "gk_gbh_2026",
+        close_rsvp_at: null,
+        is_rsvp_closed: false,
+        requires_approval: false,
+        enable_waitlist: true,
+        ticket_tiers_enabled: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    }
+
+    // Seed Ticket Tiers
+    if (!db.ticketTiers.some((t) => t.event_id === eventId)) {
+      db.ticketTiers.push(
+        {
+          id: "tier_vip_2026",
+          event_id: eventId,
+          name: "VIP All-Access Pass",
+          description: "Full backstage access, catered meals, and private mentor lounges.",
+          price: 299,
+          capacity: 50,
+          badge_color: "#7c3aed",
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: "tier_ga_2026",
+          event_id: eventId,
+          name: "General Admission",
+          description: "Full event participation, keynote access, and welcome swags.",
+          price: 0,
+          capacity: 400,
+          badge_color: "#0284c7",
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: "tier_speaker_2026",
+          event_id: eventId,
+          name: "Keynote Speaker Pass",
+          description: "Speaker lounge access and presentation stage greenroom.",
+          price: 0,
+          capacity: 25,
+          badge_color: "#10b981",
+          created_at: new Date().toISOString(),
+        }
+      );
+    }
+
+    // Seed Gates
+    if (!db.eventGates.some((g) => g.event_id === eventId)) {
+      db.eventGates.push(
+        {
+          id: "gate_main_01",
+          event_id: eventId,
+          name: "Main Gate Turnstile A",
+          gate_type: "entry",
+          code: "MG-01",
+          description: "General admission entry turnstile",
+          is_active: true,
+        },
+        {
+          id: "gate_vip_02",
+          event_id: eventId,
+          name: "VIP North Gate",
+          gate_type: "entry",
+          code: "VIP-02",
+          description: "VIP and Speaker fast-track lane",
+          is_active: true,
+        }
+      );
+    }
+
+    // Seed Food Categories
+    if (!db.eventFoodCategories.some((f) => f.event_id === eventId)) {
+      db.eventFoodCategories.push({
+        id: "food_lunch_01",
+        event_id: eventId,
+        name: "Executive Bento Lunch",
+        dietary_info: "Vegetarian, Vegan, and Halal options available",
+        total_quota: 500,
+        redeemed_count: 0,
+        is_active: true,
+      });
+    }
+
+    // Seed Attendees with Tickets
+    if (!db.guests.some((g) => g.event_id === eventId)) {
+      const alex: Guest = {
+        id: "g_alex_rivera",
+        event_id: eventId,
+        first_name: "Alex",
+        last_name: "Rivera",
+        email: "alex.rivera@google.com",
+        phone: "+1 (555) 234-5678",
+        status: "attending",
+        plus_ones_allowed: 1,
+        plus_ones_count: 0,
+        qr_token: "GBH-2026-X8F9",
+        tier_id: "tier_vip_2026",
+        tier_name: "VIP All-Access Pass",
+        seating_assignment: "Table 4 - Seat 1",
+        notes: "Keynote Speaker & AI Lead",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      const elena: Guest = {
+        id: "g_elena_chen",
+        event_id: eventId,
+        first_name: "Elena",
+        last_name: "Chen",
+        email: "elena.chen@mit.edu",
+        phone: "+1 (555) 876-5432",
+        status: "attending",
+        plus_ones_allowed: 0,
+        plus_ones_count: 0,
+        qr_token: "GBH-2026-M4K2",
+        tier_id: "tier_ga_2026",
+        tier_name: "General Admission",
+        seating_assignment: "Auditorium Row C - Seat 14",
+        notes: "Robotics Researcher",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      db.guests.push(alex, elena);
+
+      db.tickets.push(
+        {
+          id: "TK-GBH-ALEX",
+          event_id: eventId,
+          guest_id: alex.id,
+          ticket_code: alex.qr_token,
+          qr_code_data: `RSVP:${eventId}:${alex.qr_token}`,
+          status: "valid",
+          issued_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: "TK-GBH-ELENA",
+          event_id: eventId,
+          guest_id: elena.id,
+          ticket_code: elena.qr_token,
+          qr_code_data: `RSVP:${eventId}:${elena.qr_token}`,
+          status: "valid",
+          issued_at: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+        }
+      );
+    }
+
+    return demoEvent;
   }
 
   private eventCache = new Map<string, { event: Event; timestamp: number }>();
@@ -78,6 +272,10 @@ export class EventService {
       } catch (err) {
         console.error("Supabase getEventById error, falling back to local:", err);
       }
+    }
+
+    if (db.events.length === 0) {
+      this.seedDefaultEvent();
     }
 
     const event =
@@ -232,6 +430,66 @@ export class EventService {
     }
 
     return updated;
+  }
+
+  public async deleteEvent(id: string): Promise<boolean> {
+    const index = db.events.findIndex((e) => e.id === id);
+    if (index === -1) return false;
+
+    // Remove event
+    const deletedEvent = db.events.splice(index, 1)[0];
+    this.eventsListCache = null;
+    this.eventCache.delete(id);
+    if (deletedEvent?.slug) {
+      this.eventCache.delete(`slug:${deletedEvent.slug}`);
+    }
+
+    // Clean up dependent stores
+    db.eventSettings = db.eventSettings.filter((s) => s.event_id !== id);
+    db.questions = db.questions.filter((q) => q.event_id !== id);
+    db.ticketTiers = db.ticketTiers.filter((t) => t.event_id !== id);
+    db.gateCredentials = db.gateCredentials.filter((g) => g.event_id !== id);
+    db.eventGates = db.eventGates.filter((g) => g.event_id !== id);
+    db.eventAreas = db.eventAreas.filter((a) => a.event_id !== id);
+    db.eventSections = db.eventSections.filter((s) => s.event_id !== id);
+    db.eventFoodCategories = db.eventFoodCategories.filter((f) => f.event_id !== id);
+
+    // Clean up tickets, checkins, and guests
+    const eventTicketIds = new Set(db.tickets.filter((t) => t.event_id === id).map((t) => t.id));
+
+    db.checkins = db.checkins.filter((c) => !eventTicketIds.has(c.ticket_id));
+    db.tickets = db.tickets.filter((t) => t.event_id !== id);
+    db.responses = db.responses.filter((r) => r.event_id !== id);
+    db.guests = db.guests.filter((g) => g.event_id !== id);
+
+    if (isLiveSupabaseConfigured()) {
+      try {
+        const supabase = getSupabaseClient();
+        await supabase.from("events").delete().eq("id", id);
+      } catch (err) {
+        console.error("Supabase deleteEvent error:", err);
+      }
+    }
+
+    return true;
+  }
+
+  public async resetEventCheckins(eventId: string): Promise<{ count: number }> {
+    const eventTicketIds = new Set(db.tickets.filter((t) => t.event_id === eventId).map((t) => t.id));
+    const initialCheckinCount = db.checkins.length;
+    db.checkins = db.checkins.filter((c) => !eventTicketIds.has(c.ticket_id));
+    const removedCount = initialCheckinCount - db.checkins.length;
+
+    // Reset guest inside status
+    for (const g of db.guests) {
+      if (g.event_id === eventId) {
+        g.is_inside = false;
+        g.checked_in_count = 0;
+        g.checked_out_count = 0;
+      }
+    }
+
+    return { count: removedCount };
   }
 
   public async getEventSettings(eventId: string): Promise<EventSettings> {
@@ -389,7 +647,6 @@ export class EventService {
     db.ticketTiers = db.ticketTiers || [];
     let tiers = db.ticketTiers.filter((t) => t.event_id === eventId);
     if (tiers.length === 0) {
-      const event = await this.getEventById(eventId);
       const defaults = [
         {
           id: crypto.randomUUID(),
@@ -433,7 +690,6 @@ export class EventService {
     input: { name: string; description?: string; capacity: number; badge_color?: string; price?: number }
   ) {
     db.ticketTiers = db.ticketTiers || [];
-    const event = await this.getEventById(eventId);
     const newTier = {
       id: crypto.randomUUID(),
       event_id: eventId,
@@ -1046,7 +1302,6 @@ export class EventService {
 
   public async assignEventStaff(eventId: string, input: Partial<EventStaffAssignment>): Promise<EventStaffAssignment> {
     db.eventStaffAssignments = db.eventStaffAssignments || [];
-    const event = await this.getEventById(eventId);
     const prefix = input.role_type === "manager" ? "MGR" : "STAFF";
     const defaultStaffId = `${prefix}-${Math.floor(10 + Math.random() * 90)}`;
     const assignment: EventStaffAssignment = {
@@ -1110,3 +1365,4 @@ export class EventService {
 }
 
 export const eventService = new EventService();
+eventService.seedDefaultEvent();

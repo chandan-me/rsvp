@@ -42,10 +42,7 @@ export function generateTicketCode(
   return `${p}-${randomPart}`;
 }
 
-export function generateQrToken(
-  _eventTitle?: string,
-  _dateString?: string | Date | null
-): string {
+export function generateQrToken(): string {
   return `RSVP-${crypto.randomUUID()}`;
 }
 

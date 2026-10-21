@@ -62,8 +62,9 @@ export class PaymentService {
     keySecret?: string
   ): boolean {
     const secret = keySecret || process.env.RAZORPAY_KEY_SECRET || "simulated_razorpay_secret_key";
-    // In simulated local environment, accept test signature prefix or compute exact HMAC
-    if (razorpaySignature.startsWith("sig_mock_") || razorpaySignature.startsWith("simulated_")) {
+    
+    // In local development only, permit simulated signatures for testing flows
+    if (process.env.NODE_ENV !== "production" && (razorpaySignature.startsWith("sig_mock_") || razorpaySignature.startsWith("simulated_"))) {
       return true;
     }
 
@@ -72,7 +73,11 @@ export class PaymentService {
         .createHmac("sha256", secret)
         .update(`${razorpayOrderId}|${razorpayPaymentId}`)
         .digest("hex");
-      return generated === razorpaySignature;
+
+      const a = Buffer.from(generated);
+      const b = Buffer.from(razorpaySignature);
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
     } catch {
       return false;
     }
@@ -156,9 +161,6 @@ export class PaymentService {
       .reduce((sum, p) => sum + Number(p.amount), 0);
 
     const availableForWithdrawal = Math.max(0, netRevenue - withdrawnAmount - pendingSettlement);
-
-    // Withdrawal rule: event must be completed or client can request when active
-    const isCompleted = event?.status === "completed";
 
     return {
       eventId,

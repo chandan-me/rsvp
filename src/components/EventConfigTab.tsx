@@ -141,9 +141,9 @@ export function EventConfigTab({ eventId, event, onRefresh }: EventConfigTabProp
   const [newPassPrice, setNewPassPrice] = useState(0);
   const [newFoodName, setNewFoodName] = useState("");
 
-  async function loadConfig() {
+  async function loadConfig(isSilent = false) {
     try {
-      setLoading(true);
+      if (!isSilent) setLoading(true);
       const res = await fetch(`/api/events/${eventId}/config`);
       if (res.ok) {
         const data = await res.json();
@@ -266,7 +266,7 @@ export function EventConfigTab({ eventId, event, onRefresh }: EventConfigTabProp
     setNewFoodName("");
   }
 
-  if (loading) {
+  if (loading && gates.length === 0 && areas.length === 0 && passTypes.length === 0) {
     return (
       <div className="p-12 text-center">
         <Loader2 className="h-6 w-6 animate-spin text-sky-600 mx-auto mb-2" />

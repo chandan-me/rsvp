@@ -6,22 +6,20 @@ import { AuthGuard } from "@/components/AuthGuard";
 import {
   Calendar,
   MapPin,
-  Users,
   QrCode,
   ArrowRight,
   ExternalLink,
   Plus,
-  Clock,
-  CheckCircle,
 } from "lucide-react";
 import { eventService } from "@/lib/services/eventService";
+import { securityService } from "@/lib/services/securityService";
 import { formatDate, formatTime } from "@/lib/utils";
 
 export default async function EventsPage() {
-  // Server-side auth check: immediately redirect if cookie missing
+  // Server-side auth check: verify cryptographically signed session token
   const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("rsvp_auth_session");
-  if (!sessionCookie?.value) {
+  const sessionToken = cookieStore.get("rsvp_session_token")?.value || cookieStore.get("rsvp_auth_session")?.value;
+  if (!sessionToken || !securityService.verifySignedSessionToken(sessionToken)) {
     redirect("/login?redirect=/events");
   }
 

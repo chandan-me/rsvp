@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { accessRuleEngine } from "@/lib/services/accessRuleEngine";
-import { authService } from "@/lib/services/authService";
+import { rateLimiter } from "@/lib/services/rateLimiter";
+import { eventService } from "@/lib/services/eventService";
 
 export async function POST(
   req: NextRequest,
@@ -8,8 +9,22 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const body = await req.json();
 
+    // Rate Limiting Protection (anti-brute-force: 60 scans/min per IP)
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "127.0.0.1";
+    const userAgent = req.headers.get("user-agent") || "Terminal";
+    const rateCheck = rateLimiter.check(`scan-verify:${id}:${clientIp}`, 60, 60000);
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `RATE_LIMIT_EXCEEDED: Terminal scan velocity exceeded. Please wait ${rateCheck.retryAfterSeconds}s.`,
+        },
+        { status: 429 }
+      );
+    }
+
+    const body = await req.json();
     const code_or_token = body.code_or_token || body.code || body.token;
     const checkpoint_type =
       body.checkpoint_type ||
@@ -19,7 +34,23 @@ export async function POST(
     const checkpoint_name = body.checkpoint_name;
     const scan_type = body.scan_type || "entry";
     const employee_id = body.employee_id;
-    const device_info = body.device_info;
+    const gate_key = body.gate_key || req.headers.get("x-gate-key");
+    const device_info = body.device_info ? `${body.device_info} [${clientIp}]` : `${userAgent.slice(0, 40)} [${clientIp}]`;
+
+    // Security Gate Key Check if provided
+    if (gate_key) {
+      const settings = await eventService.getEventSettings(id);
+      const credentials = await eventService.getGateCredentials(id);
+      const isValidKey =
+        gate_key === settings.gate_access_key ||
+        credentials.some((c) => c.passcode === gate_key || c.id === gate_key);
+      if (!isValidKey) {
+        return NextResponse.json(
+          { success: false, error: "UNAUTHORIZED: Invalid gate security key or passcode." },
+          { status: 401 }
+        );
+      }
+    }
 
     if (!code_or_token) {
       return NextResponse.json(
@@ -50,3 +81,4 @@ export async function POST(
     );
   }
 }
+

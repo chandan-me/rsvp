@@ -51,22 +51,28 @@ export default function DedicatedGateCheckinPage({ params }: PageProps) {
           const data = await res.json();
           const allEvents: Event[] = data.events || [];
 
-          // Find matching event by id, slug, or matching settings
-          let matched: Event | null = null;
-          for (const ev of allEvents) {
-            if (ev.id === accessKey || ev.slug === accessKey) {
-              matched = ev;
-              break;
-            }
-            // Check settings gate_access_key
-            const sRes = await fetch(`/api/events/${ev.id}/settings`);
-            if (sRes.ok) {
-              const sData = await sRes.json();
-              if (sData.settings?.gate_access_key === accessKey) {
-                matched = ev;
-                break;
-              }
-            }
+          // Direct match by id or slug (0 extra fetches)
+          let matched = allEvents.find((e) => e.id === accessKey || e.slug === accessKey) || null;
+
+          // If not matched directly, check settings in parallel
+          if (!matched && allEvents.length > 0) {
+            const settingsResults = await Promise.all(
+              allEvents.map(async (ev) => {
+                try {
+                  const sRes = await fetch(`/api/events/${ev.id}/settings`);
+                  if (sRes.ok) {
+                    const sData = await sRes.json();
+                    if (sData.settings?.gate_access_key === accessKey) {
+                      return ev;
+                    }
+                  }
+                } catch {
+                  // Ignore error
+                }
+                return null;
+              })
+            );
+            matched = settingsResults.find(Boolean) || null;
           }
 
           if (!matched && allEvents.length > 0) {

@@ -1,7 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { Save, Loader2, CheckCircle2, Lock, Calendar, MapPin, Image as ImageIcon, Copy, Check, RefreshCw } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  Save,
+  Loader2,
+  CheckCircle2,
+  Lock,
+  Calendar,
+  MapPin,
+  Image as ImageIcon,
+  Copy,
+  Check,
+  RefreshCw,
+  Trash2,
+  AlertTriangle,
+  RotateCcw,
+  ShieldAlert,
+} from "lucide-react";
 import { Event, EventSettings } from "@/types/database";
 
 interface EventSettingsTabProps {
@@ -11,6 +27,8 @@ interface EventSettingsTabProps {
 }
 
 export function EventSettingsTab({ event, settings, onRefresh }: EventSettingsTabProps) {
+  const router = useRouter();
+
   // Event state
   const [title, setTitle] = useState(event.title);
   const [slug, setSlug] = useState(event.slug);
@@ -35,6 +53,13 @@ export function EventSettingsTab({ event, settings, onRefresh }: EventSettingsTa
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Danger zone modal states
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   function generateRandomPin() {
     const prefixes = ["GATE", "PASS", "VIP", "SEC"];
@@ -108,8 +133,59 @@ export function EventSettingsTab({ event, settings, onRefresh }: EventSettingsTa
     }
   }
 
+  async function handleResetCheckins() {
+    setIsResetting(true);
+    setActionNotice(null);
+    try {
+      const res = await fetch(`/api/events/${event.id}/reset-checkins`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to reset check-ins");
+      setActionNotice(data.message || "All gate check-ins have been reset.");
+      setShowResetModal(false);
+      onRefresh();
+    } catch (err: any) {
+      setError(err?.message || "Failed to reset check-ins");
+    } finally {
+      setIsResetting(false);
+    }
+  }
+
+  async function handleDeleteEvent() {
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/events/${event.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete event");
+      window.location.replace("/events");
+    } catch (err: any) {
+      setError(err?.message || "Failed to delete event");
+      setIsDeleting(false);
+      setShowDeleteModal(false);
+    }
+  }
+
   return (
     <form onSubmit={handleSave} className="space-y-6 max-w-4xl">
+      {actionNotice && (
+        <div className="rounded-xl bg-sky-50 border border-sky-200 p-3 text-xs text-sky-800 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-sky-600 shrink-0" />
+            <span>{actionNotice}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActionNotice(null)}
+            className="text-sky-700 text-xs hover:underline cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {success && (
         <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800 flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4 text-emerald-600" />
@@ -422,7 +498,7 @@ export function EventSettingsTab({ event, settings, onRefresh }: EventSettingsTa
         <button
           type="submit"
           disabled={saving}
-          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-slate-800 transition-colors disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-slate-800 transition-colors disabled:opacity-50 cursor-pointer"
         >
           {saving ? (
             <>
@@ -437,6 +513,109 @@ export function EventSettingsTab({ event, settings, onRefresh }: EventSettingsTa
           )}
         </button>
       </div>
+
+      {/* Danger Zone: Event Reset & Deletion */}
+      <div className="rounded-2xl border border-rose-200 bg-rose-50/50 p-6 shadow-xs space-y-4">
+        <div className="flex items-center gap-2 text-rose-800">
+          <ShieldAlert className="h-5 w-5 text-rose-600" />
+          <h3 className="text-sm font-bold uppercase tracking-wider">Danger Zone</h3>
+        </div>
+        <p className="text-xs text-slate-600 leading-relaxed">
+          Caution: These actions modify live event operations. Resetting check-ins will zero out attendance counters for testing or fresh gate sessions. Deleting an event is irreversible and deletes all associated tickets and rosters.
+        </p>
+
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => setShowResetModal(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 px-4 py-2 text-xs font-bold transition shadow-2xs cursor-pointer"
+          >
+            <RotateCcw className="h-4 w-4 text-amber-700" />
+            <span>Reset All Check-In Counters</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowDeleteModal(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-300 bg-rose-600 hover:bg-rose-500 text-white px-4 py-2 text-xs font-bold transition shadow-xs cursor-pointer"
+          >
+            <Trash2 className="h-4 w-4" />
+            <span>Permanently Delete Event</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Reset Check-ins Confirmation Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="h-12 w-12 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto">
+              <RotateCcw className="h-6 w-6" />
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="text-base font-bold text-slate-900">Reset All Gate Check-Ins?</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                This will reset the verified check-in state for all attendees of <strong>{event.title}</strong> back to 0. Attendees will need to scan in again.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowResetModal(false)}
+                className="rounded-xl border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleResetCheckins}
+                disabled={isResetting}
+                className="rounded-xl bg-amber-600 hover:bg-amber-500 py-2 text-xs font-semibold text-white shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {isResetting ? "Resetting..." : "Confirm Reset"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Event Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="h-12 w-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <AlertTriangle className="h-6 w-6" />
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="text-base font-bold text-slate-900">Delete Event Permanently?</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Are you sure you want to delete <strong>{event.title}</strong>? All registered guest records, ticket codes, and gate credentials will be permanently erased.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteModal(false)}
+                className="rounded-xl border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteEvent}
+                disabled={isDeleting}
+                className="rounded-xl bg-rose-600 hover:bg-rose-500 py-2 text-xs font-semibold text-white shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? "Deleting..." : "Permanently Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   );
 }

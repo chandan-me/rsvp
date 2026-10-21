@@ -42,11 +42,18 @@ export async function GET(req: NextRequest) {
     darkColor,
   });
 
-  return NextResponse.json({
-    success: true,
-    dataUrl,
-    logo,
-    hasEmbeddedLogo: logo !== "none" || !!customLogoUrl,
-  });
+  return NextResponse.json(
+    {
+      success: true,
+      dataUrl,
+      logo,
+      hasEmbeddedLogo: logo !== "none" || !!customLogoUrl,
+    },
+    {
+      headers: {
+        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+      },
+    }
+  );
 }
 

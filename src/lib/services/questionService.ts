@@ -15,7 +15,6 @@ export class QuestionService {
     eventId: string,
     input: RsvpQuestionInput
   ): Promise<RsvpQuestion & { options?: RsvpQuestionOption[] }> {
-    const event = db.events.find((e) => e.id === eventId);
     const currentQuestions = db.questions.filter((q) => q.event_id === eventId);
     const orderIndex = input.order_index || currentQuestions.length + 1;
     const qId = crypto.randomUUID();

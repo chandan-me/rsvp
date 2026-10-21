@@ -115,9 +115,9 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
     },
   };
 
-  async function loadData() {
+  async function loadData(isSilent = false) {
     try {
-      setLoading(true);
+      if (!isSilent) setLoading(true);
       const [credsRes, statsRes] = await Promise.all([
         fetch(`/api/events/${eventId}/gate-credentials`),
         fetch(`/api/events/${eventId}/station-stats`),
@@ -191,7 +191,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
       setPasscode("");
       setNotes("");
       setIsAdding(false);
-      loadData();
+      loadData(true);
     } catch (err: any) {
       setError(err?.message || "Failed to save gate credential");
     } finally {
@@ -206,7 +206,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
         method: "DELETE",
       });
       if (res.ok) {
-        loadData();
+        loadData(true);
       }
     } catch (err) {
       console.error(err);
@@ -221,7 +221,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
         body: JSON.stringify({ is_active: !currentStatus }),
       });
       if (res.ok) {
-        loadData();
+        loadData(true);
       }
     } catch (err) {
       console.error(err);
@@ -334,7 +334,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
           </div>
           <button
             type="button"
-            onClick={loadData}
+            onClick={() => loadData()}
             className="text-xs text-sky-600 hover:text-sky-700 font-bold inline-flex items-center gap-1 cursor-pointer"
           >
             <RefreshCw className="h-3 w-3" />
@@ -593,7 +593,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
           </div>
           <button
             type="button"
-            onClick={loadData}
+            onClick={() => loadData()}
             className="text-xs text-sky-600 hover:text-sky-700 font-bold cursor-pointer inline-flex items-center gap-1"
           >
             <RefreshCw className="h-3 w-3" />
@@ -601,7 +601,7 @@ export function GateStationsTab({ eventId, event, settings }: GateStationsTabPro
           </button>
         </div>
 
-        {loading ? (
+        {loading && credentials.length === 0 ? (
           <div className="p-8 text-center">
             <Loader2 className="h-6 w-6 animate-spin text-sky-600 mx-auto mb-2" />
             <span className="text-xs text-slate-400">Loading station accounts...</span>

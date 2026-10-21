@@ -4,14 +4,9 @@ import {
   Guest,
   ScanLog,
   ScanType,
-  ScanResult,
-  EventPassType,
   EventFoodCategory,
-  EventGate,
-  EventArea,
 } from "@/types/database";
 import { auditService } from "./auditService";
-import { isLiveSupabaseConfigured, getSupabaseClient } from "./supabaseAdapter";
 
 export interface VerifyAccessInput {
   eventId: string;
@@ -82,6 +77,32 @@ export class AccessRuleEngine {
       };
     };
 
+    // Rule Check 0: Cross-Event Token Tampering Check
+    if (rawCode.startsWith("RSVP:")) {
+      const parts = rawCode.split(":");
+      const boundEventId = parts[1];
+      if (boundEventId && boundEventId !== input.eventId && boundEventId.toLowerCase() !== input.eventId.toLowerCase()) {
+        return deny(
+          `SECURITY TAMPER ALERT: QR token signature is bound to another event (${boundEventId}). Entry rejected.`
+        );
+      }
+    }
+
+    // Rule Check 0.5: Rapid Replay & Double-Scan Debounce (10-second window)
+    const recentDuplicateScan = db.scanLogs.find(
+      (l) =>
+        l.event_id === input.eventId &&
+        l.scanned_code.toLowerCase() === rawCode.toLowerCase() &&
+        Math.abs(new Date(now).getTime() - new Date(l.scanned_at).getTime()) < 10000
+    );
+    if (recentDuplicateScan) {
+      const elapsedSec = Math.max(1, Math.round((new Date(now).getTime() - new Date(recentDuplicateScan.scanned_at).getTime()) / 1000));
+      return deny(
+        `DUPLICATE SCAN BLOCKED: Ticket was scanned just ${elapsedSec}s ago. Please wait 10 seconds before re-scanning.`,
+        guest
+      );
+    }
+
     // Rule Check 1: Guest Existence
     if (!guest) {
       return deny("Invalid Ticket or QR Token. No attendee found matching this code.");
@@ -94,6 +115,14 @@ export class AccessRuleEngine {
 
     if (!isEventMatch) {
       return deny("WRONG EVENT: This ticket is issued for a completely different event.", guest);
+    }
+
+    // Rule Check 2.5: Anti-Passback Protection (Entry when already inside)
+    if (input.scanType === "entry" && guest.is_inside) {
+      return deny(
+        "ANTI-PASSBACK VIOLATION: Attendee is already recorded as INSIDE the venue. Entry denied. If the attendee stepped outside, an EXIT scan must be recorded first.",
+        guest
+      );
     }
 
     // Rule Check 3: Blocked Status
@@ -261,6 +290,90 @@ export class AccessRuleEngine {
       food: foodCategory,
       checkpoint_name: input.checkpointName || input.checkpointType,
       timestamp: now,
+    };
+  }
+
+  public async getScanLogs(
+    eventId: string,
+    options?: { limit?: number; result?: string; checkpointId?: string }
+  ): Promise<{
+    logs: (ScanLog & {
+      guest_name?: string;
+      guest_email?: string;
+      tier_name?: string;
+      seating_assignment?: string;
+    })[];
+    total: number;
+  }> {
+    db.scanLogs = db.scanLogs || [];
+    let list = db.scanLogs.filter(
+      (l) => l.event_id === eventId || l.event_id.toLowerCase() === eventId.toLowerCase()
+    );
+
+    if (options?.result && options.result !== "all") {
+      list = list.filter((l) => l.result.toLowerCase() === options.result?.toLowerCase());
+    }
+
+    if (options?.checkpointId && options.checkpointId !== "all") {
+      list = list.filter(
+        (l) =>
+          l.gate_id === options.checkpointId ||
+          l.area_id === options.checkpointId ||
+          l.food_category_id === options.checkpointId
+      );
+    }
+
+    const populated = list.map((l) => {
+      const guest = l.guest_id ? db.guests.find((g) => g.id === l.guest_id) : undefined;
+      return {
+        ...l,
+        guest_name: guest ? `${guest.first_name} ${guest.last_name}`.trim() : "Unknown Attendee",
+        guest_email: guest?.email,
+        tier_name: guest?.tier_name || "General Admission",
+        seating_assignment: guest?.seating_assignment || undefined,
+      };
+    });
+
+    const limit = options?.limit || 100;
+    return {
+      logs: populated.slice(0, limit),
+      total: populated.length,
+    };
+  }
+
+  public async getHeadcountStats(eventId: string): Promise<{
+    totalGuests: number;
+    checkedInCount: number;
+    currentlyInside: number;
+    currentlyOutside: number;
+    totalScans: number;
+    allowedScans: number;
+    deniedScans: number;
+    mealsRedeemed: number;
+  }> {
+    db.guests = db.guests || [];
+    db.scanLogs = db.scanLogs || [];
+
+    const eventGuests = db.guests.filter((g) => g.event_id === eventId);
+    const eventScans = db.scanLogs.filter((l) => l.event_id === eventId);
+
+    const checkedInCount = eventGuests.filter((g) => (g.checked_in_count || 0) > 0).length;
+    const currentlyInside = eventGuests.filter((g) => g.is_inside).length;
+    const currentlyOutside = eventGuests.length - currentlyInside;
+
+    const allowedScans = eventScans.filter((s) => s.result === "ALLOWED").length;
+    const deniedScans = eventScans.filter((s) => s.result === "DENIED").length;
+    const mealsRedeemed = eventScans.filter((s) => s.scan_type === "food_redemption" && s.result === "ALLOWED").length;
+
+    return {
+      totalGuests: eventGuests.length,
+      checkedInCount,
+      currentlyInside,
+      currentlyOutside,
+      totalScans: eventScans.length,
+      allowedScans,
+      deniedScans,
+      mealsRedeemed,
     };
   }
 }

@@ -14,6 +14,8 @@ import {
 import { Event, EventSettings } from "@/types/database";
 import { CheckinScanner } from "./CheckinScanner";
 import { GateStationsTab } from "./GateStationsTab";
+import { SecurityScanLogsTab } from "./SecurityScanLogsTab";
+import { Activity } from "lucide-react";
 
 interface GateHubProps {
   eventId: string;
@@ -23,7 +25,7 @@ interface GateHubProps {
 }
 
 export function GateHub({ eventId, event, settings, checkedInCount }: GateHubProps) {
-  const [hubTab, setHubTab] = useState<"scanner" | "stations">("scanner");
+  const [hubTab, setHubTab] = useState<"scanner" | "stations" | "logs">("scanner");
 
   return (
     <div className="space-y-6">
@@ -72,14 +74,29 @@ export function GateHub({ eventId, event, settings, checkedInCount }: GateHubPro
             <Users className="h-3.5 w-3.5" />
             <span>Staff Passcodes & Stations</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setHubTab("logs")}
+            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              hubTab === "logs"
+                ? "bg-sky-600 text-white shadow-xs font-bold"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <Activity className="h-3.5 w-3.5" />
+            <span>Live Scan & Security Logs</span>
+          </button>
         </div>
       </div>
 
       {/* 2. Sub-views */}
       {hubTab === "scanner" ? (
         <CheckinScanner eventId={eventId} />
-      ) : (
+      ) : hubTab === "stations" ? (
         <GateStationsTab eventId={eventId} event={event} settings={settings} />
+      ) : (
+        <SecurityScanLogsTab eventId={eventId} event={event} />
       )}
     </div>
   );

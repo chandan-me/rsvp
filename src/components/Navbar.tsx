@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { getVerifiedSession } from "@/lib/authClient";
 import {
   CalendarCheck,
   Plus,
@@ -15,8 +16,10 @@ import {
   LayoutGrid,
   Shield,
   Layers,
-  ArrowRight,
   ExternalLink,
+  Ticket,
+  Menu,
+  X,
 } from "lucide-react";
 
 interface AuthSession {
@@ -28,22 +31,25 @@ interface AuthSession {
 
 export function Navbar() {
   const pathname = usePathname();
-  const router = useRouter();
 
   const [session, setSession] = useState<AuthSession | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
-  // Sync auth session from localStorage
-  function readSession() {
+  // Sync auth session from deduplicated verified session
+  async function readSession() {
     try {
-      const raw = localStorage.getItem("rsvp_auth_session");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setSession(parsed);
-      } else {
-        setSession(null);
+      const data = await getVerifiedSession();
+      if (data.authenticated && data.user) {
+        setSession({
+          user: data.user.name,
+          email: data.user.email,
+          role: data.user.role,
+        });
+        return;
       }
+      setSession(null);
     } catch {
       setSession(null);
     }
@@ -55,11 +61,9 @@ export function Navbar() {
     // Listen to session changes across login/logout and tabs
     const handleAuthChange = () => readSession();
     window.addEventListener("auth_session_changed", handleAuthChange);
-    window.addEventListener("storage", handleAuthChange);
 
     return () => {
       window.removeEventListener("auth_session_changed", handleAuthChange);
-      window.removeEventListener("storage", handleAuthChange);
     };
   }, []);
 
@@ -74,11 +78,11 @@ export function Navbar() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  function handleSignOut() {
+  async function handleSignOut() {
     try {
+      await fetch("/api/auth/logout", { method: "POST" });
       localStorage.removeItem("rsvp_auth_session");
       sessionStorage.clear();
-      document.cookie = "rsvp_auth_session=; path=/; max-age=0; SameSite=Lax";
       window.dispatchEvent(new Event("auth_session_changed"));
     } catch {
       // storage fallback
@@ -165,6 +169,17 @@ export function Navbar() {
                   Features
                 </Link>
                 <Link
+                  href="/showcase"
+                  className={`px-3 py-1.5 rounded-full transition-all flex items-center gap-1 ${
+                    pathname === "/showcase"
+                      ? "bg-[#f3effc] text-[#5e2ced] font-bold"
+                      : "text-[#5b6072] hover:text-[#191236] hover:bg-[#f6f3fe]"
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#5e2ced]" />
+                  <span>Showcase</span>
+                </Link>
+                <Link
                   href="/#solutions"
                   className="px-3 py-1.5 rounded-full text-[#5b6072] hover:text-[#191236] hover:bg-[#f6f3fe] transition-colors"
                 >
@@ -172,6 +187,18 @@ export function Navbar() {
                 </Link>
               </>
             )}
+
+            <Link
+              href="/lookup"
+              className={`px-3 py-1.5 rounded-full transition-all flex items-center gap-1.5 ${
+                pathname === "/lookup"
+                  ? "bg-[#f3effc] text-[#5e2ced] font-bold"
+                  : "text-[#5b6072] hover:text-[#191236] hover:bg-[#f6f3fe]"
+              }`}
+            >
+              <Ticket className="w-3.5 h-3.5 text-[#5e2ced]" />
+              <span>Find My Pass</span>
+            </Link>
 
             <Link
               href="/e/google-build-hackathon-2026"
@@ -278,6 +305,15 @@ export function Navbar() {
                         <Scan className="w-4 h-4 text-[#10b981]" />
                         <span>Field Scanner Terminal</span>
                       </Link>
+
+                      <Link
+                        href="/lookup"
+                        onClick={() => setDropdownOpen(false)}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[#f6f3fe] transition"
+                      >
+                        <Ticket className="w-4 h-4 text-[#5e2ced]" />
+                        <span>Find My Pass</span>
+                      </Link>
                     </div>
 
                     {/* Divider */}
@@ -301,7 +337,7 @@ export function Navbar() {
             <div className="flex items-center gap-2">
               <Link
                 href="/login"
-                className="inline-flex items-center gap-1.5 rounded-full border border-[#e7e1f8] bg-white hover:bg-[#f6f3fe] px-4 py-2 text-xs font-bold text-[#191236] transition-colors shadow-2xs cursor-pointer"
+                className="inline-flex items-center gap-1.5 rounded-full border border-[#e7e1f8] bg-white hover:bg-[#f6f3fe] px-3.5 sm:px-4 py-2 text-xs font-bold text-[#191236] transition-colors shadow-2xs cursor-pointer"
                 title="Sign in to your account"
               >
                 <User className="w-3.5 h-3.5 text-[#5e2ced]" />
@@ -310,14 +346,142 @@ export function Navbar() {
 
               <Link
                 href="/signup"
-                className="inline-flex items-center gap-1.5 rounded-full bg-[#5e2ced] hover:bg-[#5225d3] px-4 py-2 text-xs font-bold text-white shadow-sm shadow-[#5e2ced]/20 transition-all active:scale-[0.98]"
+                className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-[#5e2ced] hover:bg-[#5225d3] px-4 py-2 text-xs font-bold text-white shadow-sm shadow-[#5e2ced]/20 transition-all active:scale-[0.98]"
               >
                 <span>Get Started Free</span>
               </Link>
             </div>
           )}
+
+          {/* Mobile Hamburger Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Toggle mobile menu"
+            className="md:hidden p-2 rounded-xl border border-[#e7e1f8] bg-white hover:bg-[#f6f3fe] text-[#191236] transition-colors cursor-pointer shadow-2xs"
+          >
+            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
         </div>
       </div>
+
+      {/* Mobile Slide-Down Navigation Drawer */}
+      {mobileMenuOpen && (
+        <div className="md:hidden border-t border-[#e7e1f8] bg-white/98 backdrop-blur-xl px-4 py-4 space-y-3 shadow-xl animate-in slide-in-from-top-2 duration-200">
+          <div className="space-y-1">
+            {session ? (
+              <>
+                <div className="px-3 py-2 bg-[#fbfaff] rounded-xl mb-2 border border-[#e7e1f8]">
+                  <p className="text-xs font-bold text-[#191236] truncate">{session.user}</p>
+                  <p className="text-[11px] text-[#6e6a86] truncate font-mono">{session.email}</p>
+                  <span className="mt-1 inline-block px-2 py-0.5 rounded-full text-[9px] font-bold bg-[#f3effc] text-[#5e2ced] uppercase">
+                    {session.role || "Host Organizer"}
+                  </span>
+                </div>
+
+                <Link
+                  href="/events"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-[#191236] hover:bg-[#f6f3fe]"
+                >
+                  <LayoutGrid className="w-4 h-4 text-[#5e2ced]" />
+                  <span>Events Dashboard</span>
+                </Link>
+
+                <Link
+                  href="/manager"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-[#191236] hover:bg-[#f6f3fe]"
+                >
+                  <Layers className="w-4 h-4 text-[#5e2ced]" />
+                  <span>Operations Command</span>
+                </Link>
+
+                <Link
+                  href="/employee/scanner"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-[#191236] hover:bg-[#f6f3fe]"
+                >
+                  <Scan className="w-4 h-4 text-emerald-600" />
+                  <span>Field QR Scanner</span>
+                </Link>
+
+                <Link
+                  href="/events/new"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-[#5e2ced] bg-[#f3effc]"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Create New Event</span>
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/#features"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="block px-3 py-2 rounded-xl text-xs font-bold text-[#5b6072] hover:bg-[#f6f3fe]"
+                >
+                  Features
+                </Link>
+                <Link
+                  href="/showcase"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="block px-3 py-2 rounded-xl text-xs font-bold text-[#5e2ced] hover:bg-[#f6f3fe]"
+                >
+                  Interactive Showcase
+                </Link>
+                <Link
+                  href="/#solutions"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="block px-3 py-2 rounded-xl text-xs font-bold text-[#5b6072] hover:bg-[#f6f3fe]"
+                >
+                  Solutions
+                </Link>
+                <Link
+                  href="/signup"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="block px-3 py-2 rounded-xl text-xs font-bold text-[#5e2ced] bg-[#f3effc]"
+                >
+                  Get Started Free
+                </Link>
+              </>
+            )}
+
+            <div className="h-px bg-[#e7e1f8] my-2" />
+
+            <Link
+              href="/lookup"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-[#191236] hover:bg-[#f6f3fe]"
+            >
+              <Ticket className="w-4 h-4 text-[#5e2ced]" />
+              <span>Find My Pass (Attendee Lookup)</span>
+            </Link>
+
+            <Link
+              href="/e/google-build-hackathon-2026"
+              target="_blank"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold text-[#5b6072] hover:bg-[#f6f3fe]"
+            >
+              <span>Live Demo Event RSVP</span>
+              <ExternalLink className="w-3.5 h-3.5 text-[#a485fd]" />
+            </Link>
+
+            {session && (
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 text-left mt-2 cursor-pointer"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Sign Out</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </header>
   );
 }

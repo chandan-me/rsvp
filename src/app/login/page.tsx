@@ -87,16 +87,9 @@ function LoginForm() {
   }, []);
 
   function recordSession(user: { name: string; email: string; role: string }) {
-    const session = {
-      user: user.name,
-      email: user.email,
-      role: user.role,
-      token: `SEC-AUTH-${Date.now().toString(36).toUpperCase()}`,
-      issuedAt: new Date().toISOString(),
-    };
     try {
-      localStorage.setItem("rsvp_auth_session", JSON.stringify(session));
-      document.cookie = `rsvp_auth_session=${encodeURIComponent(JSON.stringify(session))}; path=/; max-age=604800; SameSite=Lax`;
+      // Clear deprecated localStorage auth session
+      localStorage.removeItem("rsvp_auth_session");
       window.dispatchEvent(new Event("auth_session_changed"));
     } catch {
       // storage fallback
@@ -121,6 +114,11 @@ function LoginForm() {
       });
       const data = await res.json();
       if (!res.ok) {
+        if (data.requiresMfa) {
+          setSecurityMode("mfa");
+          setError("Please enter your 6-digit MFA authenticator code to complete login.");
+          return;
+        }
         throw new Error(data.error || "Authentication failed");
       }
 
@@ -199,19 +197,20 @@ function LoginForm() {
     setError(null);
 
     try {
-      // Validate dynamic user session
-      const meRes = await fetch("/api/auth/me");
-      const meData = await meRes.json();
-      const currentUser = meData.user || {
-        name: "Administrator",
-        email: email || "admin@rsvp.pro",
-        role: "admin",
-      };
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password, mfaCode: entered }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "MFA Verification failed");
+      }
 
       recordSession({
-        name: currentUser.name || "Administrator",
-        email: currentUser.email,
-        role: currentUser.role || "admin",
+        name: data.user?.name || email.trim(),
+        email: data.user?.email || email.trim(),
+        role: data.user?.role || "admin",
       });
 
       setSuccess("Time-based One-Time Passcode verified! Redirecting...");

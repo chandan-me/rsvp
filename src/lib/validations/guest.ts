@@ -8,6 +8,9 @@ export const guestSchema = z.object({
   status: z.enum(["invited", "pending", "attending", "declined"]).default("pending"),
   plus_ones_allowed: z.coerce.number().int().min(0, "Cannot be negative").default(0),
   plus_ones_count: z.coerce.number().int().min(0, "Cannot be negative").default(0),
+  seating_assignment: z.string().max(100).optional().nullable(),
+  tier_id: z.string().optional().nullable(),
+  tier_name: z.string().max(100).optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
 });
 

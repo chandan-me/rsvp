@@ -3,12 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  ShieldAlert,
   ShieldCheck,
-  DollarSign,
-  TrendingUp,
   CreditCard,
-  Building,
   CheckCircle2,
   XCircle,
   Clock,
@@ -16,13 +12,9 @@ import {
   FileText,
   Loader2,
   RefreshCw,
-  Search,
-  ExternalLink,
-  Users,
-  Calendar,
-  Layers,
 } from "lucide-react";
 import { PayoutRequest, AuditLog } from "@/types/database";
+import { getVerifiedSession } from "@/lib/authClient";
 import { AuthGuard } from "@/components/AuthGuard";
 
 export default function PlatformAdminPage() {
@@ -37,14 +29,14 @@ export default function PlatformAdminPage() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState("");
 
-  async function loadData() {
-    const sessionStr = localStorage.getItem("rsvp_auth_session");
-    if (!sessionStr) {
+  async function loadData(isSilent = false) {
+    const authData = await getVerifiedSession();
+    if (!authData.authenticated || !authData.user || authData.user.role !== "admin") {
       window.location.replace(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
       return;
     }
 
-    setLoading(true);
+    if (!isSilent) setLoading(true);
     setActionError(null);
     try {
       const [resPayouts, resLogs] = await Promise.all([
@@ -91,7 +83,7 @@ export default function PlatformAdminPage() {
       if (!res.ok) throw new Error(data.error || "Failed to approve payout");
 
       setActionSuccess(`Payout request ${payoutId} approved successfully.`);
-      await loadData();
+      await loadData(true);
     } catch (err: any) {
       setActionError(err.message || "Failed to approve payout");
     } finally {
@@ -124,7 +116,7 @@ export default function PlatformAdminPage() {
       setActionSuccess(`Payout request ${rejectingId} marked as rejected.`);
       setRejectingId(null);
       setRejectionReason("");
-      await loadData();
+      await loadData(true);
     } catch (err: any) {
       setActionError(err.message || "Failed to reject payout");
     } finally {
@@ -161,7 +153,7 @@ export default function PlatformAdminPage() {
 
           <div className="flex items-center gap-3">
             <button
-              onClick={loadData}
+              onClick={() => loadData()}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 transition"
             >
               <RefreshCw className="w-3.5 h-3.5" />

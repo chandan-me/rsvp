@@ -72,8 +72,7 @@ function SignUpForm() {
       };
 
       try {
-        localStorage.setItem("rsvp_auth_session", JSON.stringify(session));
-        document.cookie = `rsvp_auth_session=${encodeURIComponent(JSON.stringify(session))}; path=/; max-age=604800; SameSite=Lax`;
+        localStorage.removeItem("rsvp_auth_session");
         window.dispatchEvent(new Event("auth_session_changed"));
       } catch {
         // storage fallback

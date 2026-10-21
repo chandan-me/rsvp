@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guestService } from "@/lib/services/guestService";
 import { guestSchema } from "@/lib/validations/guest";
+import { authService } from "@/lib/services/authService";
 
 export async function GET(
   req: NextRequest,
@@ -8,6 +9,14 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+
+    // Server-side authorization check (BOLA/IDOR prevention)
+    const user = await authService.getSessionUser(req);
+    const auth = await authService.authorizeEvent(user, id, "employee");
+    if (!auth.authorized) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    }
+
     const { searchParams } = new URL(req.url);
 
     const search = searchParams.get("search") || undefined;
@@ -37,6 +46,14 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
+
+    // Server-side authorization check (BOLA/IDOR prevention)
+    const user = await authService.getSessionUser(req);
+    const auth = await authService.authorizeEvent(user, id, "client");
+    if (!auth.authorized) {
+      return NextResponse.json({ success: false, error: auth.error }, { status: auth.status });
+    }
+
     const body = await req.json();
     const validated = guestSchema.parse(body);
     const guest = await guestService.createGuest(id, validated);

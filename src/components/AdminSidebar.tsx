@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { getVerifiedSession } from "@/lib/authClient";
 import {
   LayoutGrid,
   Users,
@@ -22,6 +23,9 @@ import {
   Lock,
   SlidersHorizontal,
   Wallet,
+  Activity,
+  Menu,
+  X,
 } from "lucide-react";
 
 export type AdminTabId =
@@ -32,10 +36,12 @@ export type AdminTabId =
   | "tiers"
   | "questions"
   | "gate_hub"
+  | "scan_logs"
   | "financials"
   | "broadcast"
   | "badges"
   | "settings";
+
 
 interface AdminSidebarProps {
   activeTab: AdminTabId;
@@ -66,6 +72,7 @@ export function AdminSidebar({
 }: AdminSidebarProps) {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [currentUser, setCurrentUser] = useState<{ name: string; email: string; role: string }>({
     name: "Platform Host",
@@ -74,31 +81,13 @@ export function AdminSidebar({
   });
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("rsvp_auth_session");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed?.name || parsed?.user || parsed?.email) {
-          setCurrentUser({
-            name: parsed.name || parsed.user || "Platform Host",
-            email: parsed.email || "organizer@event.pro",
-            role: parsed.role || userRole || "admin",
-          });
-          return;
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    fetch("/api/auth/me")
-      .then((r) => (r.ok ? r.json() : null))
+    getVerifiedSession()
       .then((data) => {
         if (data?.authenticated && data.user) {
           setCurrentUser({
             name: data.user.name,
             email: data.user.email,
-            role: data.user.role,
+            role: data.user.role || userRole || "admin",
           });
         }
       })
@@ -158,6 +147,12 @@ export function AdminSidebar({
       visible: isModuleActive("gates") || isModuleActive("qr_access") || isModuleActive("areas"),
     },
     {
+      id: "scan_logs",
+      label: "Gate Scans & Audit Logs",
+      icon: Activity,
+      visible: true,
+    },
+    {
       id: "financials",
       label: "Financial Ledger",
       icon: Wallet,
@@ -170,11 +165,11 @@ export function AdminSidebar({
 
   const NAV_ITEMS = ALL_NAV_ITEMS.filter((item) => item.visible);
 
-  function handleSignOut() {
+  async function handleSignOut() {
     try {
+      await fetch("/api/auth/logout", { method: "POST" });
       localStorage.removeItem("rsvp_auth_session");
       sessionStorage.clear();
-      document.cookie = "rsvp_auth_session=; path=/; max-age=0; SameSite=Lax";
       window.dispatchEvent(new Event("auth_session_changed"));
     } catch {
       // ignore storage errors
@@ -182,10 +177,93 @@ export function AdminSidebar({
     window.location.replace("/login?signed_out=true");
   }
 
+  const currentActiveItem = ALL_NAV_ITEMS.find((i) => i.id === activeTab);
+  const CurrentIcon = currentActiveItem?.icon || LayoutGrid;
+
   return (
     <>
+      {/* 1. Mobile Top Navigation Strip for < md */}
+      <div className="md:hidden w-full bg-white border-b border-[#e7e1f8] px-4 py-2.5 flex items-center justify-between z-20 shrink-0 shadow-2xs">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-[#5e2ced] via-[#6e54e0] to-[#7c3aed] flex items-center justify-center text-white shadow-xs shrink-0">
+            <CurrentIcon className="h-4 w-4" />
+          </div>
+          <div className="min-w-0">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-[#5e2ced] block">Section</span>
+            <span className="text-xs font-extrabold text-slate-900 truncate block">
+              {currentActiveItem?.label || "Overview"}
+            </span>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setMobileDrawerOpen(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-[#f3effc] text-[#5e2ced] border border-[#e7e1f8] hover:bg-[#ede7fa] transition-colors cursor-pointer shadow-2xs"
+        >
+          <Menu className="h-3.5 w-3.5" />
+          <span>Switch Tab ({NAV_ITEMS.length}) ▾</span>
+        </button>
+      </div>
+
+      {/* 2. Mobile Modal / Bottom Sheet Drawer */}
+      {mobileDrawerOpen && (
+        <div className="md:hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex flex-col justify-end animate-in fade-in duration-150">
+          <div className="bg-white rounded-t-3xl max-h-[85vh] flex flex-col shadow-2xl border-t border-slate-200 animate-in slide-in-from-bottom duration-200">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-purple-50 text-[#5e2ced]">
+                  <Sparkles className="h-4 w-4" />
+                </span>
+                <span className="font-extrabold text-sm text-slate-900">Event Sections &amp; Tools</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobileDrawerOpen(false)}
+                className="p-1.5 rounded-full hover:bg-slate-100 text-slate-500 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="p-3 overflow-y-auto space-y-1 divide-y divide-slate-100">
+              {NAV_ITEMS.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      setMobileDrawerOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-3.5 py-3 rounded-2xl text-xs font-semibold transition cursor-pointer ${
+                      isActive
+                        ? "bg-sky-50 text-sky-950 font-bold border border-sky-300"
+                        : "text-slate-700 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Icon className={`h-4.5 w-4.5 ${isActive ? "text-sky-600" : "text-slate-500"}`} />
+                      <span>{item.label}</span>
+                    </div>
+                    {item.badge !== undefined && (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Desktop Sidebar */}
       <aside
-        className={`bg-white border-r border-[#e7e1f8] flex flex-col shrink-0 transition-all duration-200 ease-in-out relative z-30 select-none ${
+        className={`hidden md:flex bg-white border-r border-[#e7e1f8] flex-col shrink-0 transition-all duration-200 ease-in-out relative z-30 select-none ${
           collapsed ? "w-20" : "w-64 sm:w-72"
         }`}
       >

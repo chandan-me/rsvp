@@ -71,27 +71,31 @@ export default function PublicRsvpPage({ params }: PageProps) {
 
         setEvent(found);
 
-        // Fetch settings & questions for this event
-        const resDetail = await fetch(`/api/events/${found.id}`);
-        const detailData = await resDetail.json();
-        setSettings(detailData.settings);
-
-        // Check capacity for waitlist
-        if (detailData.stats) {
-          const isFull =
-            detailData.stats.capacityLimit !== null &&
-            detailData.stats.capacityRemaining !== null &&
-            detailData.stats.capacityRemaining <= 0;
-          setIsWaitlistMode(isFull && Boolean(detailData.settings?.enable_waitlist));
-        }
-
-        const [resQ, resTiers] = await Promise.all([
+        // Fetch details, questions, and ticket tiers in parallel (eliminates waterfall delays)
+        const [resDetail, resQ, resTiers] = await Promise.all([
+          fetch(`/api/events/${found.id}`),
           fetch(`/api/events/${found.id}/questions`),
           fetch(`/api/events/${found.id}/tiers`),
         ]);
 
-        const qData = await resQ.json();
-        setQuestions(qData.questions || []);
+        if (resDetail.ok) {
+          const detailData = await resDetail.json();
+          setSettings(detailData.settings);
+
+          // Check capacity for waitlist
+          if (detailData.stats) {
+            const isFull =
+              detailData.stats.capacityLimit !== null &&
+              detailData.stats.capacityRemaining !== null &&
+              detailData.stats.capacityRemaining <= 0;
+            setIsWaitlistMode(isFull && Boolean(detailData.settings?.enable_waitlist));
+          }
+        }
+
+        if (resQ.ok) {
+          const qData = await resQ.json();
+          setQuestions(qData.questions || []);
+        }
 
         if (resTiers.ok) {
           const tData = await resTiers.json();

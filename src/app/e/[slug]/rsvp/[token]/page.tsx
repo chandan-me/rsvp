@@ -72,13 +72,17 @@ export default function GuestSelfServicePage({ params }: PageProps) {
       }
       setEvent(currentEvent);
 
-      // Load questions
-      const resQ = await fetch(`/api/events/${currentEvent.id}/questions`);
-      const qData = await resQ.json();
-      setQuestions(qData.questions || []);
+      // Load questions and attendee details in parallel
+      const [resQ, resManage] = await Promise.all([
+        fetch(`/api/events/${currentEvent.id}/questions`),
+        fetch(`/api/events/${currentEvent.id}/rsvp-manage?token=${token}`),
+      ]);
 
-      // Load attendee details via self-service API
-      const resManage = await fetch(`/api/events/${currentEvent.id}/rsvp-manage?token=${token}`);
+      if (resQ.ok) {
+        const qData = await resQ.json();
+        setQuestions(qData.questions || []);
+      }
+
       if (!resManage.ok) {
         const errJson = await resManage.json();
         setError(errJson.error || "Unable to locate attendee record.");
@@ -129,7 +133,7 @@ export default function GuestSelfServicePage({ params }: PageProps) {
       }
     }
     fetchQr();
-  }, [event, ticket, qrLogo]);
+  }, [event?.id, ticket?.ticket_code, qrLogo]);
 
   async function handleSaveChanges(e: React.FormEvent) {
     e.preventDefault();

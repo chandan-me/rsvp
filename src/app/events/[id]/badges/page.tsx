@@ -7,15 +7,13 @@ import {
   ArrowLeft,
   Filter,
   CheckCircle2,
-  Users,
-  Sparkles,
   QrCode,
   Loader2,
   LayoutGrid,
   FileText,
-  Sliders,
+  Users,
 } from "lucide-react";
-import { Event, Guest, Ticket, TicketTier } from "@/types/database";
+import { Event, TicketTier } from "@/types/database";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -234,11 +232,18 @@ export default function NameBadgeStudioPage({ params }: PageProps) {
                     <h3 className="text-xl font-extrabold text-slate-900 tracking-tight leading-tight">
                       {guest.first_name} {guest.last_name}
                     </h3>
-                    {showCompany && guest.notes && (
-                      <p className="text-xs font-medium text-slate-500 mt-1 line-clamp-1">
-                        {guest.notes}
-                      </p>
-                    )}
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                      {showCompany && guest.notes && (
+                        <span className="text-xs font-medium text-slate-500 line-clamp-1">
+                          {guest.notes}
+                        </span>
+                      )}
+                      {guest.seating_assignment && (
+                        <span className="text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-200/80 rounded px-1.5 py-0.5 inline-block">
+                          Seat: {guest.seating_assignment}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Bottom Footer with QR and Ticket Code */}

@@ -18,6 +18,8 @@ export function AddGuestModal({ eventId, isOpen, onClose, onGuestAdded }: AddGue
   const [phone, setPhone] = useState("");
   const [status, setStatus] = useState<GuestStatus>("pending");
   const [plusOnesAllowed, setPlusOnesAllowed] = useState(0);
+  const [seatingAssignment, setSeatingAssignment] = useState("");
+  const [tierName, setTierName] = useState("General Admission");
   const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +42,8 @@ export function AddGuestModal({ eventId, isOpen, onClose, onGuestAdded }: AddGue
           phone: phone.trim() || null,
           status,
           plus_ones_allowed: Number(plusOnesAllowed),
+          seating_assignment: seatingAssignment.trim() || null,
+          tier_name: tierName.trim() || null,
           notes: notes.trim() || null,
         }),
       });
@@ -175,13 +179,40 @@ export function AddGuestModal({ eventId, isOpen, onClose, onGuestAdded }: AddGue
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">
+                Ticket Tier / Pass
+              </label>
+              <input
+                type="text"
+                value={tierName}
+                onChange={(e) => setTierName(e.target.value)}
+                placeholder="e.g. VIP All-Access, General"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                Seating / Table
+              </label>
+              <input
+                type="text"
+                value={seatingAssignment}
+                onChange={(e) => setSeatingAssignment(e.target.value)}
+                placeholder="e.g. Table 4 - Seat B"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
                 Internal Notes / Tag
               </label>
               <input
                 type="text"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="e.g. VIP, Speaker, Table 4"
+                placeholder="e.g. Keynote Speaker"
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
               />
             </div>

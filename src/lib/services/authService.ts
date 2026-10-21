@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { db } from "./dbProvider";
-import { Profile, UserRoleType } from "@/types/database";
+import { UserRoleType } from "@/types/database";
+import { securityService } from "./securityService";
 
 export interface AuthenticatedUser {
   id: string;
@@ -12,76 +13,100 @@ export interface AuthenticatedUser {
 
 export class AuthService {
   /**
-   * Resolves the current user from headers, cookies, or authorization tokens.
+   * Resolves the current user securely from signed HttpOnly cookies or verified Authorization headers.
+   * NEVER falls back to default admin or unverified client-provided headers.
    */
   public async getSessionUser(req: NextRequest): Promise<AuthenticatedUser | null> {
-    // 1. Check custom user-id header (for API calls or tests)
-    const headerUserId = req.headers.get("x-user-id");
-    const headerRole = req.headers.get("x-user-role") as UserRoleType | null;
-
     db.profiles = db.profiles || [];
 
-    if (headerUserId) {
+    let verifiedPayload = null;
+
+    // 1. Check for cryptographically signed session token in cookie
+    const signedCookie = req.cookies.get("rsvp_session_token")?.value;
+    if (signedCookie) {
+      verifiedPayload = securityService.verifySignedSessionToken(signedCookie);
+    }
+
+    // 2. Check for Authorization Bearer token (for mobile/scanner apps or API clients)
+    if (!verifiedPayload) {
+      const authHeader = req.headers.get("authorization");
+      if (authHeader && authHeader.startsWith("Bearer ")) {
+        const token = authHeader.substring(7).trim();
+        verifiedPayload = securityService.verifySignedSessionToken(token);
+      }
+    }
+
+    // 3. Fallback check for transitional cookie during upgrade (only if signed or matches db user)
+    if (!verifiedPayload) {
+      const legacyCookie = req.cookies.get("rsvp_session_user")?.value;
+      if (legacyCookie) {
+        try {
+          const parsed = JSON.parse(decodeURIComponent(legacyCookie));
+          if (parsed && parsed.id && parsed.email) {
+            const matchedProfile = db.profiles.find((p) => p.id === parsed.id && p.email.toLowerCase() === parsed.email.toLowerCase());
+            if (matchedProfile) {
+              verifiedPayload = {
+                userId: matchedProfile.id,
+                email: matchedProfile.email,
+                role: (matchedProfile.role || "client") as UserRoleType,
+                name: matchedProfile.full_name || matchedProfile.email,
+                expiresAt: Date.now() + 86400000,
+              };
+            }
+          }
+        } catch {
+          // ignore invalid cookie
+        }
+      }
+    }
+
+    // If verified session payload exists, resolve profile from DB
+    if (verifiedPayload) {
+      const profile = db.profiles.find((p) => p.id === verifiedPayload.userId);
+      const role = (profile?.role || verifiedPayload.role || "client") as UserRoleType;
+      const fullName = profile?.full_name || verifiedPayload.name || verifiedPayload.email;
+
+      return {
+        id: verifiedPayload.userId,
+        email: verifiedPayload.email,
+        fullName,
+        role,
+        assignedEventIds: this.getAssignedEvents(verifiedPayload.userId),
+      };
+    }
+
+    // 4. Secure internal service verification (requires shared internal secret, never raw unverified headers)
+    const internalSecret = process.env.INTERNAL_SERVICE_SECRET;
+    const reqInternalSecret = req.headers.get("x-internal-secret");
+    const headerUserId = req.headers.get("x-user-id");
+
+    if (internalSecret && reqInternalSecret && internalSecret === reqInternalSecret && headerUserId) {
       const profile = db.profiles.find((p) => p.id === headerUserId || p.email === headerUserId);
       if (profile) {
         return {
           id: profile.id,
           email: profile.email,
           fullName: profile.full_name || profile.email,
-          role: (headerRole || profile.role || "client") as UserRoleType,
+          role: (profile.role || "client") as UserRoleType,
           assignedEventIds: this.getAssignedEvents(profile.id),
         };
       }
     }
 
-    // 2. Check for cookie / session token
-    const cookieUser = req.cookies.get("rsvp_session_user")?.value;
-    if (cookieUser) {
-      try {
-        const parsed = JSON.parse(decodeURIComponent(cookieUser));
-        return {
-          id: parsed.id,
-          email: parsed.email,
-          fullName: parsed.full_name || parsed.email,
-          role: (parsed.role || "client") as UserRoleType,
-          assignedEventIds: this.getAssignedEvents(parsed.id),
-        };
-      } catch {
-        // invalid cookie
-      }
-    }
-
-    // 3. Fallback to registered profile or dynamic local admin
-    const defaultAdmin = db.profiles[0];
-    if (defaultAdmin) {
-      return {
-        id: defaultAdmin.id,
-        email: defaultAdmin.email,
-        fullName: defaultAdmin.full_name || "Platform Admin",
-        role: (defaultAdmin.role || "admin") as UserRoleType,
-        assignedEventIds: (db.events || []).map((e) => e.id),
-      };
-    }
-
-    return {
-      id: "DYNAMIC-ADMIN",
-      email: "admin@platform.local",
-      fullName: "Dynamic Admin",
-      role: "admin" as UserRoleType,
-      assignedEventIds: (db.events || []).map((e) => e.id),
-    };
+    // No valid verified credentials: fail securely
+    return null;
   }
 
-  private getAssignedEvents(userId: string): string[] {
+  public getAssignedEvents(userId: string): string[] {
     const list = new Set<string>();
     // Event owner / client
-    db.events.forEach((e) => {
+    (db.events || []).forEach((e) => {
       if (e.created_by === userId || e.client_id === userId) {
         list.add(e.id);
       }
     });
     // Staff assignments
-    db.eventStaffAssignments.forEach((s) => {
+    (db.eventStaffAssignments || []).forEach((s) => {
       if (s.user_id === userId || s.staff_user_id === userId) {
         list.add(s.event_id);
       }
@@ -90,7 +115,7 @@ export class AuthService {
   }
 
   /**
-   * Enforces event-level authorization. Default: DENY.
+   * Enforces event-level authorization (IDOR / BOLA Prevention). Default: DENY.
    */
   public async authorizeEvent(
     user: AuthenticatedUser | null,

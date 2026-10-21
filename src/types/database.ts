@@ -56,6 +56,9 @@ export interface Profile {
   full_name: string | null;
   avatar_url: string | null;
   role?: UserRoleType;
+  password_hash?: string;
+  mfa_secret?: string;
+  mfa_enabled?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -302,6 +305,7 @@ export interface Guest {
   tier_name?: string | null;
   pass_type_id?: string | null;
   pass_name?: string | null;
+  seating_assignment?: string | null;
   food_category_id?: string | null;
   food_category_name?: string | null;
   primary_guest_id?: string | null;
