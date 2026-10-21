@@ -31,7 +31,17 @@ export default function OperationsManagerPage() {
         const data = await res.json();
         const evList: Event[] = data.events || [];
         setEvents(evList);
-        if (evList.length > 0) {
+
+        // Check URL query parameter ?event= or ?id=
+        let targetEventId = "";
+        if (typeof window !== "undefined") {
+          const params = new URLSearchParams(window.location.search);
+          targetEventId = params.get("event") || params.get("id") || "";
+        }
+
+        if (targetEventId && evList.some((e) => e.id === targetEventId)) {
+          setSelectedEventId(targetEventId);
+        } else if (evList.length > 0) {
           setSelectedEventId(evList[0].id);
         }
       }
@@ -128,13 +138,38 @@ export default function OperationsManagerPage() {
           </div>
 
           {selectedEvent && (
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
               <Link
                 href={`/events/${selectedEvent.id}`}
-                className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-700 bg-white border border-sky-200 px-3.5 py-2 rounded-xl shadow-2xs"
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-[#5e2ced] hover:text-[#5225d3] bg-white border border-[#e7e1f8] px-3 py-1.5 rounded-xl shadow-2xs hover:bg-[#f3effc] transition"
               >
-                <span>View Full Roster & Gates</span>
+                <span>📋 Full Roster</span>
                 <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link
+                href={`/events/${selectedEvent.id}/badges`}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-slate-900 bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-2xs hover:bg-slate-50 transition"
+              >
+                <span>🏷️ Badges</span>
+              </Link>
+              <Link
+                href={`/events/${selectedEvent.id}/checkin`}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-slate-900 bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-2xs hover:bg-slate-50 transition"
+              >
+                <span>🚪 Gate Hub</span>
+              </Link>
+              <Link
+                href={`/employee/scanner?event=${selectedEvent.id}`}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-white border border-emerald-200 px-3 py-1.5 rounded-xl shadow-2xs hover:bg-emerald-50 transition"
+              >
+                <span>📱 Field Scanner</span>
+              </Link>
+              <Link
+                href={`/e/${selectedEvent.slug}`}
+                target="_blank"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-[#5e2ced] px-2 py-1.5"
+              >
+                <span>Public RSVP ↗</span>
               </Link>
             </div>
           )}

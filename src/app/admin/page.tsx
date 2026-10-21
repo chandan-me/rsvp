@@ -161,11 +161,51 @@ export default function PlatformAdminPage() {
             </button>
             <Link
               href="/events"
-              className="px-3.5 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold transition shadow-sm"
+              className="px-3.5 py-1.5 rounded-xl bg-[#5e2ced] hover:bg-[#5225d3] text-white text-xs font-bold transition shadow-sm shadow-purple-500/20"
             >
               Organizer Events
             </Link>
           </div>
+        </div>
+
+        {/* Quick Cross-Section Navigation Ribbon */}
+        <div className="max-w-6xl mx-auto pt-2 mt-2 border-t border-slate-200/80 flex items-center gap-2 overflow-x-auto text-xs">
+          <Link
+            href="/events"
+            className="text-slate-600 hover:text-[#5e2ced] bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] font-bold shadow-2xs transition"
+          >
+            📅 Events Dashboard
+          </Link>
+          <Link
+            href="/manager"
+            className="text-slate-600 hover:text-[#5e2ced] bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] font-bold shadow-2xs transition"
+          >
+            ⚡ Operations Command
+          </Link>
+          <Link
+            href="/employee/scanner"
+            className="text-slate-600 hover:text-[#5e2ced] bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] font-bold shadow-2xs transition"
+          >
+            📱 Field QR Scanner
+          </Link>
+          <Link
+            href="/lookup"
+            className="text-slate-600 hover:text-[#5e2ced] bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] font-bold shadow-2xs transition"
+          >
+            🔍 Pass Lookup
+          </Link>
+          <Link
+            href="/showcase"
+            className="text-slate-600 hover:text-[#5e2ced] bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] font-bold shadow-2xs transition"
+          >
+            ✨ Showcase
+          </Link>
+          <Link
+            href="/"
+            className="text-slate-500 hover:text-slate-800 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ml-auto"
+          >
+            ← Home
+          </Link>
         </div>
       </header>
 

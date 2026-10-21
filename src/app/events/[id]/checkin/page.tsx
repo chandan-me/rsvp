@@ -143,20 +143,44 @@ export default function CheckinStationPage({ params }: PageProps) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center px-4 py-8 sm:px-6">
         <div className="mx-auto w-full max-w-md">
-          {/* Header Link */}
-          <div className="mb-6 flex items-center justify-between">
-            <Link
-              href={`/events/${eventId}`}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-white transition-colors bg-slate-900 px-3.5 py-2 rounded-xl border border-slate-800"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span>Back to Dashboard</span>
-            </Link>
+          {/* Header Navigation & Connectivity */}
+          <div className="mb-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <Link
+                href={`/events/${eventId}`}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-300 hover:text-white transition-colors bg-slate-900 px-3.5 py-2 rounded-xl border border-slate-800"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span>Back to Event</span>
+              </Link>
 
-            <span className="text-[10px] uppercase font-bold tracking-wider bg-rose-500/10 text-rose-400 px-2.5 py-1 rounded-md border border-rose-500/20 flex items-center gap-1">
-              <Lock className="h-3 w-3" />
-              <span>Station Locked</span>
-            </span>
+              <span className="text-[10px] uppercase font-bold tracking-wider bg-rose-500/10 text-rose-400 px-2.5 py-1 rounded-md border border-rose-500/20 flex items-center gap-1">
+                <Lock className="h-3 w-3" />
+                <span>Station Locked</span>
+              </span>
+            </div>
+
+            {/* Quick Workspace Switcher Pills */}
+            <div className="flex items-center justify-center gap-2 text-xs flex-wrap">
+              <Link
+                href={`/events/${eventId}/badges`}
+                className="text-slate-400 hover:text-white bg-slate-900/60 px-2.5 py-1 rounded-lg border border-slate-800 text-[11px] font-semibold transition"
+              >
+                🏷️ Name Badges
+              </Link>
+              <Link
+                href={`/employee/scanner?event=${eventId}`}
+                className="text-slate-400 hover:text-white bg-slate-900/60 px-2.5 py-1 rounded-lg border border-slate-800 text-[11px] font-semibold transition"
+              >
+                📱 Field Scanner
+              </Link>
+              <Link
+                href="/events"
+                className="text-slate-400 hover:text-white bg-slate-900/60 px-2.5 py-1 rounded-lg border border-slate-800 text-[11px] font-semibold transition"
+              >
+                📅 All Events
+              </Link>
+            </div>
           </div>
 
           {/* Authentication Card */}
@@ -291,6 +315,40 @@ export default function CheckinStationPage({ params }: PageProps) {
               <span className="hidden sm:inline">Lock Station</span>
             </button>
           </div>
+        </div>
+
+        {/* Quick Workspace Switcher Ribbon */}
+        <div className="mx-auto max-w-4xl pt-2 mt-2 border-t border-slate-800/80 flex items-center gap-2 overflow-x-auto text-xs">
+          <Link
+            href={`/events/${eventId}`}
+            className="text-slate-400 hover:text-white px-2.5 py-1 rounded-lg hover:bg-slate-800 transition font-medium"
+          >
+            📋 Event Dashboard
+          </Link>
+          <Link
+            href={`/events/${eventId}/badges`}
+            className="text-slate-400 hover:text-white px-2.5 py-1 rounded-lg hover:bg-slate-800 transition font-medium"
+          >
+            🏷️ Name Badges
+          </Link>
+          <Link
+            href={`/employee/scanner?event=${eventId}`}
+            className="text-slate-400 hover:text-white px-2.5 py-1 rounded-lg hover:bg-slate-800 transition font-medium"
+          >
+            📱 Field QR Scanner
+          </Link>
+          <Link
+            href={`/manager?event=${eventId}`}
+            className="text-slate-400 hover:text-white px-2.5 py-1 rounded-lg hover:bg-slate-800 transition font-medium"
+          >
+            ⚡ Ops Command
+          </Link>
+          <Link
+            href="/events"
+            className="text-slate-500 hover:text-slate-300 px-2.5 py-1 rounded-lg hover:bg-slate-800 transition font-medium ml-auto"
+          >
+            ← All Events
+          </Link>
         </div>
       </header>
 

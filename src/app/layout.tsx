@@ -18,6 +18,8 @@ export const metadata: Metadata = {
     "Powerful event management software for registration, online invitations & RSVP, on-site check-in, ticketing, and real-time attendance tracking.",
 };
 
+import { QuickCommandBar } from "@/components/QuickCommandBar";
+
 export default function RootLayout({
   children,
 }: {
@@ -30,6 +32,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-slate-50 text-slate-900">
         {children}
+        <QuickCommandBar />
       </body>
     </html>
   );

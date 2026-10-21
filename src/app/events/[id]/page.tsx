@@ -222,18 +222,35 @@ export default function EventDashboardPage({ params }: PageProps) {
 
       {/* 2. Main Admin Canvas */}
       <main className="flex-1 min-w-0 flex flex-col h-screen overflow-y-auto">
-        {/* Top Header Bar */}
-        <header className="bg-white border-b border-slate-200/80 px-6 py-4 sticky top-0 z-20 shadow-2xs">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        {/* Top Header Bar with Workspace Connectivity */}
+        <header className="bg-white border-b border-slate-200/80 sticky top-0 z-20 shadow-2xs">
+          {/* Breadcrumb row */}
+          <div className="border-b border-slate-100 px-6 py-2 bg-[#fbfaff] flex items-center justify-between text-xs text-slate-500">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Link
+                href="/events"
+                className="inline-flex items-center gap-1 font-bold text-[#5e2ced] hover:text-[#5225d3] transition-colors"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                <span>All Events</span>
+              </Link>
+              <span className="text-slate-300">/</span>
+              <span className="font-semibold text-slate-700 truncate max-w-xs">{event.title}</span>
+              <span className="text-slate-300">/</span>
+              <span className="font-bold text-slate-900">Event Workspace</span>
+            </div>
+
+            <Link
+              href="/events"
+              className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+            >
+              ← Back to All Events
+            </Link>
+          </div>
+
+          <div className="px-6 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <Link
-                  href="/events"
-                  className="text-slate-400 hover:text-slate-700 transition-colors p-1 -ml-1 rounded"
-                  title="All Events"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </Link>
                 <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900">
                   {event.title}
                 </h1>
@@ -295,6 +312,62 @@ export default function EventDashboardPage({ params }: PageProps) {
                 </Link>
               </div>
             </div>
+          </div>
+
+          {/* Dedicated Event Workspace Cross-Navigation Bar */}
+          <div className="px-6 pb-2.5 pt-1 border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            <button
+              type="button"
+              onClick={() => setActiveTab("overview")}
+              className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                activeTab === "overview"
+                  ? "bg-[#5e2ced] text-white shadow-2xs"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+              }`}
+            >
+              📊 Overview &amp; Roster
+            </button>
+
+            <Link
+              href={`/events/${event.id}/badges`}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer"
+            >
+              <Printer className="h-3.5 w-3.5 text-[#5e2ced]" />
+              <span>Name Badges Studio</span>
+            </Link>
+
+            <Link
+              href={`/events/${event.id}/checkin`}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer"
+            >
+              <ShieldCheck className="h-3.5 w-3.5 text-[#5e2ced]" />
+              <span>Gate Station Hub</span>
+            </Link>
+
+            <Link
+              href={`/employee/scanner?event=${event.id}`}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer"
+            >
+              <span className="text-[11px]">📱</span>
+              <span>Field QR Scanner</span>
+            </Link>
+
+            <Link
+              href={`/manager?event=${event.id}`}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-all cursor-pointer"
+            >
+              <span className="text-[11px]">⚡</span>
+              <span>Ops Command</span>
+            </Link>
+
+            <Link
+              href={`/e/${event.slug}`}
+              target="_blank"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold text-slate-500 hover:text-[#5e2ced] hover:bg-purple-50 transition-all ml-auto"
+            >
+              <span>Public RSVP</span>
+              <ExternalLink className="h-3 w-3" />
+            </Link>
           </div>
         </header>
 

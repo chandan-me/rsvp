@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { Event, TicketTier } from "@/types/database";
 
+import { EventWorkspaceHeader } from "@/components/EventWorkspaceHeader";
+
 interface PageProps {
   params: Promise<{ id: string }>;
 }
@@ -86,7 +88,7 @@ export default function NameBadgeStudioPage({ params }: PageProps) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-sky-600" />
+          <Loader2 className="h-8 w-8 animate-spin text-[#5e2ced]" />
           <p className="text-xs text-slate-500 font-medium">Preparing Name Badge Studio...</p>
         </div>
       </div>
@@ -112,22 +114,29 @@ export default function NameBadgeStudioPage({ params }: PageProps) {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900">
-      {/* Control Toolbar — Hidden during Print */}
-      <div className="print:hidden bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+      {/* 1. Universal Event Workspace Header — Hidden during Print */}
+      <div className="print:hidden">
+        <EventWorkspaceHeader
+          eventId={event.id}
+          eventTitle={event.title}
+          eventSlug={event.slug}
+          isPublished={event.is_published}
+          startDate={event.start_date}
+          timezone={event.timezone}
+          locationName={event.location_name || undefined}
+          activeWorkspaceTab="badges"
+          totalGuests={guests.length}
+        />
+      </div>
+
+      {/* 2. Control Toolbar — Hidden during Print */}
+      <div className="print:hidden bg-white border-b border-slate-200 sticky top-16 z-20 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 py-3.5 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Link
-              href={`/events/${eventId}`}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-900 transition-colors"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span>Back to Event</span>
-            </Link>
-            <span className="text-slate-300">|</span>
             <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-sky-600" />
-              <h1 className="text-sm font-bold text-slate-900">Name Badge Print Studio</h1>
-              <span className="rounded-full bg-slate-100 text-slate-700 px-2 py-0.5 text-xs font-semibold">
+              <FileText className="h-4 w-4 text-[#5e2ced]" />
+              <h2 className="text-sm font-bold text-slate-900">Badge Print Controls</h2>
+              <span className="rounded-full bg-purple-50 text-[#5e2ced] border border-purple-200 px-2 py-0.5 text-xs font-bold">
                 {filteredGuests.length} Badges Ready
               </span>
             </div>

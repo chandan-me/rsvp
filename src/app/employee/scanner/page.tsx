@@ -134,7 +134,17 @@ export default function MobileStaffScannerPage() {
           const data = await res.json();
           const evList: Event[] = data.events || [];
           setEvents(evList);
-          if (evList.length > 0) {
+
+          // Support deep-linking to specific event via ?event= or ?id=
+          let targetEventId = "";
+          if (typeof window !== "undefined") {
+            const params = new URLSearchParams(window.location.search);
+            targetEventId = params.get("event") || params.get("id") || "";
+          }
+
+          if (targetEventId && evList.some((e) => e.id === targetEventId)) {
+            setSelectedEventId(targetEventId);
+          } else if (evList.length > 0) {
             setSelectedEventId(evList[0].id);
           }
         }
@@ -381,42 +391,111 @@ export default function MobileStaffScannerPage() {
   return (
     <AuthGuard>
       <div className="min-h-screen bg-white text-slate-900 flex flex-col font-sans">
-      {/* Top Header */}
-      <header className="bg-slate-50 border-b border-slate-200 px-4 py-3 sticky top-0 z-30 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-sky-600 text-white flex items-center justify-center font-bold shadow-sm shadow-sky-600/30">
-            <Scan className="w-5 h-5" />
+      {/* Top Header & Workspace Navigation Ribbon */}
+      <header className="bg-slate-50 border-b border-slate-200 sticky top-0 z-30 shadow-2xs">
+        {/* Top Breadcrumbs */}
+        <div className="border-b border-slate-200/80 px-4 py-1.5 bg-white flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link
+              href="/events"
+              className="text-[#5e2ced] hover:text-[#5225d3] font-bold flex items-center gap-1"
+            >
+              <span>← All Events</span>
+            </Link>
+            {selectedEventId && (
+              <>
+                <span className="text-slate-300">/</span>
+                <Link
+                  href={`/events/${selectedEventId}`}
+                  className="text-slate-600 hover:text-slate-900 font-semibold truncate max-w-xs"
+                >
+                  {events.find((e) => e.id === selectedEventId)?.title || selectedEventId}
+                </Link>
+                <span className="text-slate-300">/</span>
+                <span className="font-bold text-slate-900">Field Terminal</span>
+              </>
+            )}
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base font-black tracking-tight text-slate-900 uppercase">Field Access Terminal</h1>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-sky-100 text-sky-800 uppercase tracking-wider">
-                Staff Ops
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 font-medium">Ultra-low latency checkpoint verification</p>
+
+          <div className="flex items-center gap-2">
+            {selectedEventId && (
+              <Link
+                href={`/events/${selectedEventId}`}
+                className="text-[11px] font-bold text-[#5e2ced] hover:underline"
+              >
+                Open Event Roster →
+              </Link>
+            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className={`p-2 rounded-xl border text-xs font-semibold transition ${
-              soundEnabled
-                ? "bg-sky-50 border-sky-300 text-sky-700"
-                : "bg-white border-slate-200 text-slate-400 hover:text-slate-600"
-            }`}
-            title={soundEnabled ? "Mute audio" : "Enable sound"}
-          >
-            {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-          </button>
-          <Link
-            href="/events"
-            className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 transition"
-          >
-            Dashboard
-          </Link>
+        {/* Main Header Title Row */}
+        <div className="px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#5e2ced] to-[#7c3aed] text-white flex items-center justify-center font-bold shadow-sm shadow-purple-500/20">
+              <Scan className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-black tracking-tight text-slate-900 uppercase">Field Access Terminal</h1>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-[#5e2ced] uppercase tracking-wider">
+                  Staff Ops
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 font-medium">Ultra-low latency checkpoint verification</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSoundEnabled(!soundEnabled)}
+              className={`p-2 rounded-xl border text-xs font-semibold transition ${
+                soundEnabled
+                  ? "bg-purple-50 border-purple-200 text-[#5e2ced]"
+                  : "bg-white border-slate-200 text-slate-400 hover:text-slate-600"
+              }`}
+              title={soundEnabled ? "Mute audio" : "Enable sound"}
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+            <Link
+              href="/events"
+              className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 transition"
+            >
+              Dashboard
+            </Link>
+          </div>
         </div>
+
+        {/* Quick Workspace Switcher Bar */}
+        {selectedEventId && (
+          <div className="px-4 pb-2 pt-1 border-t border-slate-200/60 flex items-center gap-2 overflow-x-auto text-xs">
+            <Link
+              href={`/events/${selectedEventId}`}
+              className="text-slate-600 hover:text-[#5e2ced] bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] font-bold shadow-2xs transition"
+            >
+              📋 Event Roster
+            </Link>
+            <Link
+              href={`/events/${selectedEventId}/badges`}
+              className="text-slate-600 hover:text-[#5e2ced] bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] font-bold shadow-2xs transition"
+            >
+              🏷️ Name Badges
+            </Link>
+            <Link
+              href={`/events/${selectedEventId}/checkin`}
+              className="text-slate-600 hover:text-[#5e2ced] bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] font-bold shadow-2xs transition"
+            >
+              🚪 Check-In Station
+            </Link>
+            <Link
+              href={`/manager?event=${selectedEventId}`}
+              className="text-slate-600 hover:text-[#5e2ced] bg-white px-2.5 py-1 rounded-lg border border-slate-200 text-[11px] font-bold shadow-2xs transition"
+            >
+              ⚡ Ops Command
+            </Link>
+          </div>
+        )}
       </header>
 
       {/* Main Terminal Grid */}

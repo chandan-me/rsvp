@@ -21,7 +21,10 @@ import {
   Image as ImageIcon,
   Trash2,
   ShieldCheck,
+  CreditCard,
 } from "lucide-react";
+import Link from "next/link";
+import { getVerifiedSession } from "@/lib/authClient";
 import { Event, EventSettings, RsvpQuestion, TicketTier, PlusOneDetail } from "@/types/database";
 import { formatDate, formatTime } from "@/lib/utils";
 
@@ -56,6 +59,15 @@ export default function PublicRsvpPage({ params }: PageProps) {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [session, setSession] = useState<any>(null);
+  const [pendingOrder, setPendingOrder] = useState<any>(null);
+  const [showSandboxModal, setShowSandboxModal] = useState(false);
+
+  useEffect(() => {
+    getVerifiedSession().then((data) => {
+      if (data?.authenticated) setSession(data);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     async function fetchEventDetails() {
@@ -198,23 +210,29 @@ export default function PublicRsvpPage({ params }: PageProps) {
     reader.readAsDataURL(file);
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  // Helper to dynamically load the official Razorpay Checkout modal script
+  function loadRazorpayScript(): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (typeof window !== "undefined" && (window as any).Razorpay) {
+        resolve(true);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  }
+
+  // Completes the final RSVP registration after payment validation or for free tickets
+  async function completeRsvpRegistration(paymentId?: string, orderId?: string) {
     if (!event) return;
     setSubmitting(true);
     setError(null);
 
     try {
-      // Validate required questions including files
-      for (const q of questions) {
-        if (q.is_required && status === "attending") {
-          const ans = answers[q.id];
-          if (!ans || (typeof ans === "string" && !ans.trim()) || (Array.isArray(ans) && ans.length === 0)) {
-            throw new Error(`Please provide a response for: "${q.prompt}"`);
-          }
-        }
-      }
-
       // Format answers payload
       const formattedAnswers = questions.map((q) => {
         const val = answers[q.id];
@@ -272,6 +290,142 @@ export default function PublicRsvpPage({ params }: PageProps) {
     }
   }
 
+  // Handle simulated / sandbox payment success when live keys are in test/mock mode
+  async function handleSandboxPaymentSuccess() {
+    if (!pendingOrder) return;
+    setSubmitting(true);
+    try {
+      const mockPaymentId = `pay_mock_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      const verifyRes = await fetch("/api/payments/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_id: pendingOrder.razorpay_order_id,
+          payment_id: mockPaymentId,
+          signature: `sig_mock_${Date.now()}`,
+          method: "sandbox_card",
+        }),
+      });
+
+      if (!verifyRes.ok) {
+        const vData = await verifyRes.json();
+        throw new Error(vData.error || "Payment verification failed");
+      }
+
+      setShowSandboxModal(false);
+      await completeRsvpRegistration(mockPaymentId, pendingOrder.razorpay_order_id);
+    } catch (err: any) {
+      setError(err.message || "Sandbox payment verification failed");
+      setSubmitting(false);
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!event) return;
+    setError(null);
+
+    // Validate required questions
+    for (const q of questions) {
+      if (q.is_required && status === "attending") {
+        const ans = answers[q.id];
+        if (!ans || (typeof ans === "string" && !ans.trim()) || (Array.isArray(ans) && ans.length === 0)) {
+          setError(`Please provide a response for: "${q.prompt}"`);
+          return;
+        }
+      }
+    }
+
+    const selectedTier = tiers.find((t) => t.id === selectedTierId);
+    const isPaidTier = status === "attending" && selectedTier && selectedTier.price && selectedTier.price > 0;
+
+    // Case 1: Paid Ticket Tier -> Trigger Razorpay Payment
+    if (isPaidTier) {
+      setSubmitting(true);
+      try {
+        const orderRes = await fetch("/api/payments/create-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event_id: event.id,
+            pass_type_id: selectedTier.id,
+            amount: selectedTier.price || 0,
+            currency: "INR",
+          }),
+        });
+
+        const orderData = await orderRes.json();
+        if (!orderRes.ok || !orderData.success) {
+          throw new Error(orderData.error || "Failed to create payment order");
+        }
+
+        const keyId = orderData.key_id || "";
+        const isLiveKey = keyId && !keyId.includes("YOUR_KEY") && !keyId.includes("your_key");
+
+        if (isLiveKey) {
+          const isScriptLoaded = await loadRazorpayScript();
+          if (isScriptLoaded && (window as any).Razorpay) {
+            const options = {
+              key: keyId,
+              amount: Math.round((selectedTier.price || 0) * 100),
+              currency: "INR",
+              name: event.title,
+              description: `${selectedTier.name} Registration Pass`,
+              order_id: orderData.order.razorpay_order_id,
+              prefill: {
+                name: `${firstName} ${lastName}`.trim(),
+                email: email.trim(),
+                contact: phone.trim(),
+              },
+              theme: { color: "#5e2ced" },
+              handler: async function (response: any) {
+                try {
+                  const verifyRes = await fetch("/api/payments/verify", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      order_id: response.razorpay_order_id,
+                      payment_id: response.razorpay_payment_id,
+                      signature: response.razorpay_signature,
+                    }),
+                  });
+                  const verifyData = await verifyRes.json();
+                  if (!verifyRes.ok || !verifyData.success) {
+                    throw new Error(verifyData.error || "Payment signature verification failed");
+                  }
+                  await completeRsvpRegistration(response.razorpay_payment_id, response.razorpay_order_id);
+                } catch (err: any) {
+                  setError(err.message || "Payment verification failed");
+                  setSubmitting(false);
+                }
+              },
+              modal: {
+                ondismiss: function () {
+                  setSubmitting(false);
+                },
+              },
+            };
+            const rzp = new (window as any).Razorpay(options);
+            rzp.open();
+            return;
+          }
+        }
+
+        // Sandbox / Test fallback modal when live keys have placeholder in .env.local
+        setPendingOrder(orderData.order);
+        setShowSandboxModal(true);
+        setSubmitting(false);
+      } catch (err: any) {
+        setError(err.message || "Failed to initialize Razorpay checkout");
+        setSubmitting(false);
+      }
+      return;
+    }
+
+    // Case 2: Free Admission or Decline
+    await completeRsvpRegistration();
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -301,8 +455,69 @@ export default function PublicRsvpPage({ params }: PageProps) {
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col justify-between">
+      {/* 1. Host Preview Mode Banner (shown when authenticated organizer is viewing) */}
+      {session?.authenticated && event && (
+        <div className="bg-slate-900 text-white px-4 py-2 border-b border-slate-800 text-xs sticky top-0 z-40 shadow-md">
+          <div className="max-w-4xl mx-auto flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="font-bold text-slate-200">Host Preview Mode</span>
+              <span className="text-slate-400 hidden sm:inline">• Logged in as {session.user?.name || "Organizer"}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/events/${event.id}`}
+                className="px-2.5 py-1 rounded-lg bg-[#5e2ced] hover:bg-[#5225d3] text-white text-[11px] font-bold transition shadow-xs"
+              >
+                ← Manage Event &amp; Roster
+              </Link>
+              <Link
+                href={`/events/${event.id}/badges`}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold transition"
+              >
+                🏷️ Badges
+              </Link>
+              <Link
+                href={`/events/${event.id}/checkin`}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold transition"
+              >
+                🚪 Gate Hub
+              </Link>
+              <Link
+                href={`/employee/scanner?event=${event.id}`}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold transition"
+              >
+                📱 Scanner
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Public Guest Navigation Strip */}
+      <div className="bg-white/90 backdrop-blur-md border-b border-slate-200 px-4 py-2.5 text-xs">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <Link href="/" className="font-bold text-slate-900 hover:text-[#5e2ced] flex items-center gap-2 transition-colors">
+            <span className="h-2 w-2 rounded-full bg-[#5e2ced]" />
+            <span className="font-extrabold tracking-tight">RSVP</span>
+            <span className="text-slate-400 text-[11px] font-normal hidden sm:inline">• Event Registration</span>
+          </Link>
+          <div className="flex items-center gap-3 text-slate-600">
+            <Link
+              href="/lookup"
+              className="text-[#5e2ced] hover:text-[#5225d3] font-bold flex items-center gap-1 transition-colors"
+            >
+              <span>Find My Pass</span>
+            </Link>
+            <Link href="/" className="hover:text-slate-900 font-medium transition-colors">
+              Home
+            </Link>
+          </div>
+        </div>
+      </div>
+
       {/* Event Cover Photo Hero */}
-      <div className="relative w-full max-w-3xl mx-auto mt-0 sm:mt-8 overflow-hidden sm:rounded-3xl shadow-xl border border-slate-200/80 bg-white">
+      <div className="relative w-full max-w-3xl mx-auto mt-0 sm:mt-6 overflow-hidden sm:rounded-3xl shadow-xl border border-slate-200/80 bg-white">
         {/* Banner Image */}
         <div className="relative h-64 sm:h-80 w-full overflow-hidden bg-slate-900">
           {event.cover_image_url ? (
@@ -862,7 +1077,9 @@ export default function PublicRsvpPage({ params }: PageProps) {
                           ? "Join Priority Waitlist"
                           : settings?.requires_approval
                             ? "Submit Application for Screening"
-                            : "Confirm RSVP & Get Pass"}
+                            : status === "attending" && tiers.find((t) => t.id === selectedTierId)?.price
+                              ? `Pay ₹${tiers.find((t) => t.id === selectedTierId)?.price} with Razorpay & Get Pass`
+                              : "Confirm RSVP & Get Pass"}
                     </span>
                     <ArrowRight className="h-4 w-4" />
                   </>
@@ -872,6 +1089,88 @@ export default function PublicRsvpPage({ params }: PageProps) {
           </form>
         )}
       </div>
+
+      {/* Razorpay Test / Sandbox Modal (for instant testing before live keys are added) */}
+      {showSandboxModal && pendingOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-purple-200 space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#5e2ced] text-white flex items-center justify-center font-bold shadow-md shadow-purple-500/20">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">Razorpay Payment</h3>
+                  <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                    Order Active
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSandboxModal(false);
+                  setSubmitting(false);
+                }}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="bg-purple-50/60 rounded-2xl p-4 border border-purple-100 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500">Tier Selected</span>
+                <span className="font-bold text-slate-800">{tiers.find((t) => t.id === selectedTierId)?.name}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500">Razorpay Order ID</span>
+                <span className="font-mono text-[11px] font-bold text-purple-700">{pendingOrder.razorpay_order_id}</span>
+              </div>
+              <div className="flex justify-between text-xs pt-2 border-t border-purple-200/60">
+                <span className="text-slate-700 font-bold">Total Amount Due</span>
+                <span className="text-base font-extrabold text-[#5e2ced]">₹{pendingOrder.amount}</span>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-200 leading-relaxed">
+              💡 <strong>Configuration Note:</strong> You can replace the default test keys in <code className="font-mono text-[#5e2ced] font-bold">.env.local</code> with your live Razorpay Key ID and Secret anytime to launch Razorpay's branded popup checkout directly!
+            </div>
+
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleSandboxPaymentSuccess}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[#5e2ced] to-[#7c3aed] text-white py-3 text-xs font-bold shadow-md hover:shadow-lg hover:scale-[1.01] transition-all cursor-pointer"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Verifying &amp; Issuing Ticket...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Simulate Successful Payment (₹{pendingOrder.amount})</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSandboxModal(false);
+                  setSubmitting(false);
+                }}
+                className="w-full text-xs font-semibold text-slate-500 hover:text-slate-800 py-1.5"
+              >
+                Cancel Transaction
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <footer className="py-6 text-center text-xs text-slate-400">
         Powered by RSVP Pro • Secure Event Operations

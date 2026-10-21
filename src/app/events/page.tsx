@@ -10,6 +10,8 @@ import {
   ArrowRight,
   ExternalLink,
   Plus,
+  Printer,
+  Scan,
 } from "lucide-react";
 import { eventService } from "@/lib/services/eventService";
 import { securityService } from "@/lib/services/securityService";
@@ -142,34 +144,55 @@ export default async function EventsPage() {
                       </div>
 
                       {/* Action Links */}
-                      <div className="mt-5 pt-4 border-t border-[#e7e1f8] flex items-center justify-between text-xs">
-                        <Link
-                          href={`/events/${event.id}/checkin`}
-                          className="inline-flex items-center gap-1 font-bold text-[#5e2ced] hover:text-[#5225d3]"
-                        >
-                          <QrCode className="h-3.5 w-3.5" />
-                          <span>Check-In Gate</span>
-                        </Link>
+                      <div className="mt-5 pt-4 border-t border-[#e7e1f8] space-y-3">
+                        {/* Quick Tool Navigation Chips */}
+                        <div className="flex items-center gap-1.5 flex-wrap text-[11px] font-bold">
+                          <Link
+                            href={`/events/${event.id}/badges`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#fbfaff] hover:bg-[#f3effc] text-slate-700 hover:text-[#5e2ced] border border-[#e7e1f8] transition"
+                            title="Name Badge Print Studio"
+                          >
+                            <Printer className="h-3 w-3 text-[#5e2ced]" />
+                            <span>Badges</span>
+                          </Link>
 
-                        <div className="flex items-center gap-3">
+                          <Link
+                            href={`/events/${event.id}/checkin`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#fbfaff] hover:bg-[#f3effc] text-slate-700 hover:text-[#5e2ced] border border-[#e7e1f8] transition"
+                            title="Check-In Gate Hub"
+                          >
+                            <QrCode className="h-3 w-3 text-[#5e2ced]" />
+                            <span>Gate Hub</span>
+                          </Link>
+
+                          <Link
+                            href={`/employee/scanner?event=${event.id}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#fbfaff] hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-[#e7e1f8] transition"
+                            title="Field Terminal Scanner"
+                          >
+                            <Scan className="h-3 w-3 text-emerald-600" />
+                            <span>Scanner</span>
+                          </Link>
+
                           <Link
                             href={`/e/${event.slug}`}
                             target="_blank"
                             title="Open public RSVP page"
-                            className="text-[#6e6a86] hover:text-[#191236] flex items-center gap-1"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-slate-500 hover:text-[#5e2ced] transition ml-auto text-[11px]"
                           >
-                            <span>Public RSVP</span>
-                            <ExternalLink className="h-3.5 w-3.5" />
-                          </Link>
-
-                          <Link
-                            href={`/events/${event.id}`}
-                            className="font-bold text-[#191236] hover:text-[#5e2ced] flex items-center gap-1"
-                          >
-                            <span>Manage</span>
-                            <ArrowRight className="h-3.5 w-3.5" />
+                            <span>RSVP</span>
+                            <ExternalLink className="h-3 w-3" />
                           </Link>
                         </div>
+
+                        {/* Primary Manage Button */}
+                        <Link
+                          href={`/events/${event.id}`}
+                          className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#5e2ced] hover:bg-[#5225d3] text-white py-2 text-xs font-bold shadow-xs shadow-[#5e2ced]/20 transition-all cursor-pointer"
+                        >
+                          <span>Manage Roster &amp; Settings</span>
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </Link>
                       </div>
                     </div>
                   </div>

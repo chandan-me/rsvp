@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       order,
+      key_id: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID || "",
     });
   } catch (err: any) {
     return NextResponse.json(
